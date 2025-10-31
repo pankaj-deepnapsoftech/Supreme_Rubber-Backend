@@ -9,7 +9,7 @@ const userRoleSchema = new Schema(
   {
     role: {
       type: String,
-      required: [true, "Role is a required field"], 
+      required: [true, "Role is a required field"],
       unique: true,
       minlength: [2, "Role must be at least 2 characters long"],
       maxlength: [20, "Role cannot exceed 20 characters"],
@@ -18,7 +18,7 @@ const userRoleSchema = new Schema(
       type: [String],
       enum: {
         values: [
-           "dashboard",
+          "dashboard",
           "user role",
           "employee",
           "inventory",
@@ -26,7 +26,8 @@ const userRoleSchema = new Schema(
           "production",
           "bom",
           "gateman",
-          "supplier"
+          "supplier",
+          "purchase order"
         ],
         message:
           "Permissions should be one of the following: product, store, approval, agent, bom",

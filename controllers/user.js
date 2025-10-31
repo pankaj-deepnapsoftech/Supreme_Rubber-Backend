@@ -64,14 +64,14 @@ exports.verifyUser = TryCatch(async (req, res) => {
   });
 });
 exports.update = TryCatch(async (req, res) => {
-  const { _id, role } = req.body;
+  const { id, role } = req.body;
 
-  if (!_id || !role) {
+  if (!id || !role) {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
 
   const user = await User.findByIdAndUpdate(
-    _id,
+    id,
     { role, isSuper: false },
     { new: true }
   );

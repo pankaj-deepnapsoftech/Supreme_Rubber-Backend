@@ -42,7 +42,7 @@ exports.edit = TryCatch(async (req, res) => {
 exports.remove = TryCatch(async (req, res) => {
   const { _id } = req.body;
   if (!_id) {
-    throw new ErrorHandler("_id is a required field", 400);
+    throw new ErrorHandler("id is a required field", 400);
   }
 
   const userRole = await UserRole.findById(_id);

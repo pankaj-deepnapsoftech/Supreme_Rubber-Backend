@@ -50,8 +50,11 @@ exports.details = TryCatch(async (req, res) => {
 // UPDATE Supplier
 exports.update = TryCatch(async (req, res) => {
   const { _id, ...updates } = req.body;
-  const supplier = await Supplier.findByIdAndUpdate(_id, updates, { new: true });
 
+
+  
+  const supplier = await Supplier.findByIdAndUpdate(_id, updates, { new: true });
+  
   if (!supplier) throw new ErrorHandler("Supplier not found", 404);
 
   res.status(200).json({
