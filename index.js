@@ -5,6 +5,7 @@ const authRoutes = require("./routes/user");
 const userRoleRoutes = require("./routes/userRole");
 const productRoutes = require("./routes/product");
 const supplierRoutes = require("./routes/supplier");
+const purchaseOrderRoutes = require("./routes/purchaseOrder");
 
 const app = express();
 // require('dotenv').config({ path: `.env.${process.env.NODE_ENV}` })
@@ -46,6 +47,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/role", userRoleRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/supplier", supplierRoutes);
+app.use("/api/purchase-order", purchaseOrderRoutes);
+
 
 
 app.listen(process.env.PORT, () => {
