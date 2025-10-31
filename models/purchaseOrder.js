@@ -1,17 +1,7 @@
 const { Schema, model } = require("mongoose");
 
-const purchaseOrderSchema = new Schema(
+const productItemSchema = new Schema(
   {
-    po_number: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    supplier: {
-      type: Schema.Types.ObjectId,
-      ref: "Supplier",
-      required: [true, "Supplier is required"],
-    },
     item_name: {
       type: String,
       required: [true, "Item name is required"],
@@ -31,6 +21,29 @@ const purchaseOrderSchema = new Schema(
     category: {
       type: String,
       required: [true, "Category is required"],
+    },
+  },
+  { _id: false } // disable separate _id for each item
+);
+
+const purchaseOrderSchema = new Schema(
+  {
+    po_number: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    supplier: {
+      type: Schema.Types.ObjectId,
+      ref: "Supplier",
+      required: [true, "Supplier is required"],
+    },
+    products: {
+      type: [productItemSchema],
+      validate: {
+        validator: (arr) => arr.length > 0,
+        message: "At least one product must be added",
+      },
     },
     status: {
       type: String,

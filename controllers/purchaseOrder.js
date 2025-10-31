@@ -5,13 +5,13 @@ const { generatePoNumber } = require("../utils/generatePoNumber");
 
 // CREATE PO
 exports.create = TryCatch(async (req, res) => {
-  const { supplier, item_name, est_quantity, category, produce_quantity, remain_quantity } = req.body;
+  const { supplier, products } = req.body;
 
-  if (!supplier || !item_name || !est_quantity || !category) {
-    throw new ErrorHandler("Please fill all mandatory fields", 400);
+  if (!supplier || !Array.isArray(products) || products.length === 0) {
+    throw new ErrorHandler("Supplier and at least one product are required", 400);
   }
 
-  // Validate supplier existence
+  // Verify supplier
   const existingSupplier = await Supplier.findById(supplier);
   if (!existingSupplier) {
     throw new ErrorHandler("Invalid supplier ID", 404);
@@ -22,11 +22,7 @@ exports.create = TryCatch(async (req, res) => {
   const po = await PurchaseOrder.create({
     po_number: poNumber,
     supplier,
-    item_name,
-    est_quantity,
-    produce_quantity,
-    remain_quantity,
-    category,
+    products,
   });
 
   res.status(201).json({
@@ -37,10 +33,11 @@ exports.create = TryCatch(async (req, res) => {
   });
 });
 
+
 // GET all POs (with supplier details)
 exports.all = TryCatch(async (req, res) => {
   const pos = await PurchaseOrder.find()
-    .populate("supplier", "supplier_id name company_name email location")
+    .populate("supplier", "supplier_id name email company_name location")
     .sort({ createdAt: -1 });
 
   res.status(200).json({
@@ -50,10 +47,14 @@ exports.all = TryCatch(async (req, res) => {
   });
 });
 
+
 // GET PO by ID (with supplier details)
 exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;
-  const po = await PurchaseOrder.findById(id).populate("supplier", "supplier_id name email company_name location");
+  const po = await PurchaseOrder.findById(id).populate(
+    "supplier",
+    "supplier_id name email company_name location"
+  );
   if (!po) throw new ErrorHandler("Purchase Order not found", 404);
 
   res.status(200).json({
@@ -63,21 +64,29 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 
+
 // UPDATE PO
 exports.update = TryCatch(async (req, res) => {
-  const { _id, ...updates } = req.body;
+  const { _id, supplier, products, status } = req.body;
 
-  if (updates.supplier) {
-    const supplierExists = await Supplier.findById(updates.supplier);
-    if (!supplierExists) throw new ErrorHandler("Invalid supplier ID", 404);
+  const po = await PurchaseOrder.findById(_id);
+  if (!po) throw new ErrorHandler("Purchase Order not found", 404);
+
+  if (supplier) {
+    const exists = await Supplier.findById(supplier);
+    if (!exists) throw new ErrorHandler("Invalid supplier ID", 404);
+    po.supplier = supplier;
   }
 
-  const po = await PurchaseOrder.findByIdAndUpdate(_id, updates, { new: true }).populate(
-    "supplier",
-    "supplier_id name company_name email"
-  );
+  if (products && Array.isArray(products)) {
+    po.products = products;
+  }
 
-  if (!po) throw new ErrorHandler("Purchase Order not found", 404);
+  if (status) {
+    po.status = status;
+  }
+
+  await po.save();
 
   res.status(200).json({
     status: 200,
