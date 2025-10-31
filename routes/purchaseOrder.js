@@ -1,5 +1,5 @@
 const express = require("express");
-const { create, all, details, update, remove } = require("../controllers/purchaseOrder");
+const { create, all, details, update, remove, pendingForGateMan, acceptByGateMan } = require("../controllers/purchaseOrder");
 const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isAllowed } = require("../middlewares/isAllowed");
 
@@ -12,6 +12,11 @@ router.route("/")
 
 router.get("/all", isAuthenticated, isAllowed, all);
 router.get("/:id", isAuthenticated, isAllowed, details);
+
+// Gate Man routes
+router.get("/pending/gate-man", isAuthenticated, isAllowed, pendingForGateMan);
+router.put("/accept/:id", isAuthenticated, isAllowed, acceptByGateMan);
+
 
 module.exports = router;
 

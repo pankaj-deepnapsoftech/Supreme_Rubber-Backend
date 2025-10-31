@@ -99,3 +99,40 @@ exports.remove = TryCatch(async (req, res) => {
     message: "Purchase Order deleted successfully",
   });
 });
+
+
+// GET all POs that are pending for Gate Man (status = "PO Created")
+exports.pendingForGateMan = TryCatch(async (req, res) => {
+  const pendingPOs = await PurchaseOrder.find({ status: "PO Created" })
+    .populate("supplier", "supplier_id name email company_name location")
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Pending POs for Gate Man fetched successfully",
+    pendingPOs,
+  });
+});
+
+// ACCEPT a PO (Gate Man accepts delivery)
+exports.acceptByGateMan = TryCatch(async (req, res) => {
+  const { id } = req.params;
+
+  const po = await PurchaseOrder.findById(id);
+  if (!po) throw new ErrorHandler("Purchase Order not found", 404);
+
+  if (po.status !== "PO Created") {
+    throw new ErrorHandler(`PO already ${po.status}`, 400);
+  }
+
+  po.status = "Accepted";
+  await po.save();
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Purchase Order accepted successfully",
+    po,
+  });
+});
