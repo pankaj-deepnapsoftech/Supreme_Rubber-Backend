@@ -4,10 +4,11 @@ const PurchaseOrder = require("../models/purchaseOrder");
 const Supplier = require("../models/supplier");
 
 // CREATE ENTRY
+const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
 exports.create = TryCatch(async (req, res) => {
   let { po_ref, po_number, invoice_number, company_name, items } = req.body;
 
-  // 🔹 Handle case where items is sent as string in form-data
   if (typeof items === "string") {
     try {
       items = JSON.parse(items);
@@ -16,24 +17,21 @@ exports.create = TryCatch(async (req, res) => {
     }
   }
 
-  // 🔹 Validate required fields
   if (!po_ref || !po_number || !invoice_number || !company_name || !items) {
     throw new ErrorHandler("All fields including po_ref are required", 400);
   }
 
-  // 🔹 File URLs
   const poFile = req.files?.attached_po?.[0];
   const invoiceFile = req.files?.attached_invoice?.[0];
 
   const attached_po = poFile
-    ? `${req.protocol}://${req.get("host")}/${poFile.path.replace(/\\/g, "/")}`
+    ? `${BASE_URL}/${poFile.path.replace(/\\/g, "/")}`
     : null;
 
   const attached_invoice = invoiceFile
-    ? `${req.protocol}://${req.get("host")}/${invoiceFile.path.replace(/\\/g, "/")}`
+    ? `${BASE_URL}/${invoiceFile.path.replace(/\\/g, "/")}`
     : null;
 
-  // 🔹 Create entry
   const entry = await GateMan.create({
     po_ref,
     po_number,
@@ -44,7 +42,6 @@ exports.create = TryCatch(async (req, res) => {
     attached_invoice,
   });
 
-  // 🔹 Optional: update PO status to In Process
   await PurchaseOrder.findByIdAndUpdate(po_ref, { status: "In Process" });
 
   res.status(201).json({
@@ -54,6 +51,7 @@ exports.create = TryCatch(async (req, res) => {
     entry,
   });
 });
+
 
 
 // GET ALL ENTRIES
