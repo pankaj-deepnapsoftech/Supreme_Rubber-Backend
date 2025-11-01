@@ -1,5 +1,7 @@
 const PurchaseOrder = require("../models/purchaseOrder");
 const Supplier = require("../models/supplier");
+
+const Product = require("../models/product");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const { generatePoNumber } = require("../utils/generatePoNumber");
 
@@ -7,22 +9,46 @@ const { generatePoNumber } = require("../utils/generatePoNumber");
 exports.create = TryCatch(async (req, res) => {
   const { supplier, products } = req.body;
 
+
+  // ✅ Validate supplier and product array
   if (!supplier || !Array.isArray(products) || products.length === 0) {
     throw new ErrorHandler("Supplier and at least one product are required", 400);
   }
 
-  // Verify supplier
+  // ✅ Check if supplier exists
   const existingSupplier = await Supplier.findById(supplier);
   if (!existingSupplier) {
     throw new ErrorHandler("Invalid supplier ID", 404);
   }
 
+  // ✅ Generate PO number
   const poNumber = await generatePoNumber();
+
+  // ✅ Fetch product details for each product
+  const finalProducts = [];
+  for (const item of products) {
+    // item.item_name is actually product _id
+    const productData = await Product.findById(item.item_name);
+    if (!productData) {
+      throw new ErrorHandler(`Invalid Product ID: ${item.item_name}`, 404);
+    }
+
+    finalProducts.push({
+      item_name: productData.name, // fetched product name
+      category: productData.category, // fetched product category
+      est_quantity: item.est_quantity,
+      produce_quantity: item.produce_quantity || 0,
+      remain_quantity: item.remain_quantity || item.est_quantity,
+      uom:item.uom ,
+      product_type: item.product_type
+    });
+  }
+
 
   const po = await PurchaseOrder.create({
     po_number: poNumber,
     supplier,
-    products,
+    products: finalProducts,
   });
 
   res.status(201).json({
@@ -32,7 +58,6 @@ exports.create = TryCatch(async (req, res) => {
     po,
   });
 });
-
 
 // GET all POs (with supplier details)
 exports.all = TryCatch(async (req, res) => {
@@ -53,8 +78,10 @@ exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;
   const po = await PurchaseOrder.findById(id).populate(
     "supplier",
-    "supplier_id name email company_name location"
+    "supplier_id name email company_name location",
+
   );
+
   if (!po) throw new ErrorHandler("Purchase Order not found", 404);
 
   res.status(200).json({
@@ -100,6 +127,8 @@ exports.update = TryCatch(async (req, res) => {
 // DELETE PO
 exports.remove = TryCatch(async (req, res) => {
   const { _id } = req.body;
+
+  console.log(req.body)
   const po = await PurchaseOrder.findByIdAndDelete(_id);
   if (!po) throw new ErrorHandler("Purchase Order not found", 404);
 
