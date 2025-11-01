@@ -5,6 +5,7 @@ const { generateSupplierId } = require("../utils/generateSupplierId");
 // CREATE Supplier
 exports.create = TryCatch(async (req, res) => {
   const supplierDetails = req.body;
+  
   if (!supplierDetails.name || !supplierDetails.phone) {
     throw new ErrorHandler("Name and phone number are required", 400);
   }

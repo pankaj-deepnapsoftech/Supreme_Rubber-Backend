@@ -50,7 +50,7 @@ exports.update = TryCatch(async (req, res) => {
     throw new ErrorHandler("Please provide product details", 400);
   }
 
-  const { _id } = productDetails;
+  const { _id } = productDetails;  
 
   let product = await Product.findById(_id);
   if (!product) {
@@ -83,8 +83,8 @@ exports.update = TryCatch(async (req, res) => {
 });
 
 exports.remove = TryCatch(async (req, res) => {
-  const { _id } = req.body;
-  const product = await Product.findByIdAndDelete(_id);
+  const { id } = req.body;
+  const product = await Product.findByIdAndDelete(id);
   if (!product) {
     throw new ErrorHandler("Product doesn't exist", 400);
   }
