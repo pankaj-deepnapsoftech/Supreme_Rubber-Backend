@@ -24,6 +24,7 @@ router
 router.get("/all", isAuthenticated, isAllowed, all);
 router.get("/:id", isAuthenticated, isAllowed, details);
 router.get("/from-po/:poId", isAuthenticated, isAllowed, prefillFromPO);
+router.patch("/change-status/:id", isAuthenticated, isAllowed, require("../controllers/gateMan").changeStatus);
 
 
 module.exports = router;

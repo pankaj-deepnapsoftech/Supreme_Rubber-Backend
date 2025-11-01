@@ -30,7 +30,10 @@ exports.create = TryCatch(async (req, res) => {
     : null;
 
   const attached_invoice = invoiceFile
-    ? `${req.protocol}://${req.get("host")}/${invoiceFile.path.replace(/\\/g, "/")}`
+    ? `${req.protocol}://${req.get("host")}/${invoiceFile.path.replace(
+        /\\/g,
+        "/"
+      )}`
     : null;
 
   // 🔹 Create entry
@@ -54,7 +57,6 @@ exports.create = TryCatch(async (req, res) => {
     entry,
   });
 });
-
 
 // GET ALL ENTRIES
 exports.all = TryCatch(async (req, res) => {
@@ -109,8 +111,10 @@ exports.remove = TryCatch(async (req, res) => {
 exports.prefillFromPO = TryCatch(async (req, res) => {
   const { poId } = req.params;
 
-  const po = await PurchaseOrder.findById(poId)
-    .populate("supplier", "name company_name supplier_id location email");
+  const po = await PurchaseOrder.findById(poId).populate(
+    "supplier",
+    "name company_name supplier_id location email"
+  );
 
   if (!po) throw new ErrorHandler("Purchase Order not found", 404);
 
@@ -133,5 +137,25 @@ exports.prefillFromPO = TryCatch(async (req, res) => {
     success: true,
     message: "PO data ready for GateMan entry",
     data: formatted,
+  });
+});
+
+exports.changeStatus = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const entry = await GateMan.findById(id);
+  if (!entry) throw new ErrorHandler("Entry not found", 404);
+
+  if (entry.status !== "Entry Created") {
+    throw new ErrorHandler("Status change not allowed from current state", 400);
+  }
+
+  entry.status = "Verified";
+  await entry.save();
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "GateMan status updated to Verified",
+    entry,
   });
 });
