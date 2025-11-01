@@ -62,7 +62,8 @@ exports.details = TryCatch(async (req, res) => {
     success: true,
     po,
   });
-});
+});  
+
 
 
 // UPDATE PO

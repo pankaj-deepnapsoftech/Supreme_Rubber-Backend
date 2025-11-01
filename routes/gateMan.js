@@ -1,0 +1,29 @@
+const express = require("express");
+const { create, all, details, update, remove, prefillFromPO } = require("../controllers/gateMan");
+const { upload } = require("../utils/uploadGateman");
+const { isAuthenticated } = require("../middlewares/isAuthenticated");
+const { isAllowed } = require("../middlewares/isAllowed");
+
+const router = express.Router();
+
+// CRUD routes
+router
+  .route("/")
+  .post(
+    isAuthenticated,
+    isAllowed,
+    upload.fields([
+      { name: "attached_po", maxCount: 1 },
+      { name: "attached_invoice", maxCount: 1 },
+    ]),
+    create
+  )
+  .put(isAuthenticated, isAllowed, update)
+  .delete(isAuthenticated, isAllowed, remove);
+
+router.get("/all", isAuthenticated, isAllowed, all);
+router.get("/:id", isAuthenticated, isAllowed, details);
+router.get("/from-po/:poId", isAuthenticated, isAllowed, prefillFromPO);
+
+
+module.exports = router;
