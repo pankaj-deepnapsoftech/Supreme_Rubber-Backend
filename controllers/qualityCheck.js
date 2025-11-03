@@ -4,9 +4,8 @@ const { z } = require("zod");
 
 const createQualityCheckSchema = z.object({
   gateman_entry_id: z.string().min(1, "Gateman entry ID is required"),
-  item_name: z.string().min(1, "Item name is required"),
+  item_id: z.string().min(1, "Item ID is required"),
   product_type: z.string().min(2, "Product type must be at least 2 characters"),
-  product_name: z.string().min(2, "Product name must be at least 2 characters"),
   approved_quantity: z.number().min(0, "Approved quantity cannot be negative"),
   rejected_quantity: z.number().min(0, "Rejected quantity cannot be negative"),
 });
@@ -23,7 +22,7 @@ const getAvailableProducts = async (req, res) => {
       for (const item of entry.items) {
         const existingChecks = await QualityCheck.find({
           gateman_entry_id: entry._id,
-          item_name: item.item_name,
+          item_id: item._id,
         });
 
         const totalCheckedQuantity = existingChecks.reduce(
@@ -39,6 +38,7 @@ const getAvailableProducts = async (req, res) => {
             gateman_entry_id: entry._id,
             po_number: entry.po_number,
             company_name: entry.company_name,
+            item_id: item._id,
             item_name: item.item_name,
             total_quantity: item.item_quantity,
             already_checked: totalCheckedQuantity,
@@ -64,7 +64,7 @@ const getAvailableProducts = async (req, res) => {
   }
 };
 
-const getQualityChecks = async (req, res) => {
+const getAllQualityChecks = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -111,22 +111,24 @@ const createQualityCheck = async (req, res) => {
   try {
     const validationResult = createQualityCheckSchema.safeParse(req.body);
 
+    console.log("ssdfsdf", validationResult);
+
     if (!validationResult.success) {
       return res.status(400).json({
         success: false,
         message: "Validation errors",
-        errors: validationResult.error.errors.map((err) => ({
-          field: err.path.join("."),
-          message: err.message,
-        })),
+        errors:
+          validationResult.error?.issues?.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })) || [],
       });
     }
 
     const {
       gateman_entry_id,
-      item_name,
+      item_id,
       product_type,
-      product_name,
       approved_quantity,
       rejected_quantity,
     } = validationResult.data;
@@ -147,7 +149,7 @@ const createQualityCheck = async (req, res) => {
     }
 
     const gatemanItem = gatemanEntry.items.find(
-      (item) => item.item_name === item_name
+      (item) => item._id.toString() === item_id
     );
     if (!gatemanItem) {
       return res.status(404).json({
@@ -158,7 +160,7 @@ const createQualityCheck = async (req, res) => {
 
     const existingChecks = await QualityCheck.find({
       gateman_entry_id,
-      item_name,
+      item_id,
     });
 
     const totalExistingQuantity = existingChecks.reduce(
@@ -184,9 +186,9 @@ const createQualityCheck = async (req, res) => {
 
     const qualityCheck = new QualityCheck({
       gateman_entry_id,
-      item_name,
+      item_id,
+      item_name: gatemanItem.item_name,
       product_type,
-      product_name,
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
@@ -230,8 +232,71 @@ const createQualityCheck = async (req, res) => {
   }
 };
 
+const getQualityChecks = async (req, res) => {
+  try {
+    const { gateman_entry_id } = req.query;
+
+    let query = {};
+    if (gateman_entry_id) {
+      query.gateman_entry_id = gateman_entry_id;
+    }
+
+    const qualityChecks = await QualityCheck.find(query)
+      .populate("created_by", "name email")
+      .populate({
+        path: "gateman_entry_id",
+        select: "po_number company_name invoice_number items",
+        populate: {
+          path: "po_ref",
+          select: "po_number",
+        },
+      })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      message: "Quality checks retrieved successfully",
+      data: qualityChecks,
+    });
+  } catch (error) {
+    console.error("Error getting quality checks:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const deleteQualityCheck = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedCheck = await QualityCheck.findByIdAndDelete(id);
+
+    if (!deletedCheck) {
+      return res.status(404).json({
+        success: false,
+        message: "Quality check record not found",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Quality check record deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting quality check:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
-  getQualityChecks,
+  getAllQualityChecks,
   createQualityCheck,
   getAvailableProducts,
+  getQualityChecks,
+  deleteQualityCheck,
 };
