@@ -17,11 +17,11 @@ const qualityCheckSchema = new Schema(
       required: [true, "Product type is required"],
       trim: true,
     },
-    product_name: {
-      type: String,
-      required: [true, "Product name is required"],
-      trim: true,
-    },
+    // product_name: {
+    //   type: String,
+    //   required: [true, "Product name is required"],
+    //   trim: true,
+    // },
     approved_quantity: {
       type: Number,
       required: [true, "Approved quantity is required"],

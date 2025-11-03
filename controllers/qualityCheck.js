@@ -6,7 +6,7 @@ const createQualityCheckSchema = z.object({
   gateman_entry_id: z.string().min(1, "Gateman entry ID is required"),
   item_name: z.string().min(1, "Item name is required"),
   product_type: z.string().min(2, "Product type must be at least 2 characters"),
-  product_name: z.string().min(2, "Product name must be at least 2 characters"),
+  // product_name: z.string().min(2, "Product name must be at least 2 characters"),
   approved_quantity: z.number().min(0, "Approved quantity cannot be negative"),
   rejected_quantity: z.number().min(0, "Rejected quantity cannot be negative"),
 });
@@ -129,7 +129,7 @@ const createQualityCheck = async (req, res) => {
       gateman_entry_id,
       item_name,
       product_type,
-      product_name,
+      // product_name,
       approved_quantity,
       rejected_quantity,
     } = validationResult.data;
@@ -189,7 +189,7 @@ const createQualityCheck = async (req, res) => {
       gateman_entry_id,
       item_name,
       product_type,
-      product_name,
+      // product_name,
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
