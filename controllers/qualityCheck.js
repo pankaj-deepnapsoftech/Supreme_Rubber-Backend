@@ -1,6 +1,8 @@
 const QualityCheck = require("../models/qualityCheck");
 const GateMan = require("../models/gateMan");
-const { z } = require("zod");
+const { z } = require("zod"); 
+const Product = require("../models/product");
+
 
 const createQualityCheckSchema = z.object({
   gateman_entry_id: z.string().min(1, "Gateman entry ID is required"),
@@ -156,6 +158,7 @@ const createQualityCheck = async (req, res) => {
       });
     }
 
+    // ✅ Quantity validation
     const existingChecks = await QualityCheck.find({
       gateman_entry_id,
       item_name,
@@ -172,16 +175,18 @@ const createQualityCheck = async (req, res) => {
     if (newTotalQuantity > gatemanItem.item_quantity) {
       return res.status(400).json({
         success: false,
-        message: `Total quantity cannot exceed available quantity. Available: ${gatemanItem.item_quantity}, Already checked: ${totalExistingQuantity}, Requested: ${requestedTotalQuantity}`,
+        message: `Total quantity cannot exceed available quantity.`,
         details: {
           available_quantity: gatemanItem.item_quantity,
           already_checked: totalExistingQuantity,
-          remaining_quantity: gatemanItem.item_quantity - totalExistingQuantity,
+          remaining_quantity:
+            gatemanItem.item_quantity - totalExistingQuantity,
           requested_quantity: requestedTotalQuantity,
         },
       });
     }
 
+    // ✅ Create quality check entry
     const qualityCheck = new QualityCheck({
       gateman_entry_id,
       item_name,
@@ -195,6 +200,18 @@ const createQualityCheck = async (req, res) => {
 
     const savedQualityCheck = await qualityCheck.save();
 
+    // ✅ STEP 3 — Increase current stock in Product inventory
+    const product = await Product.findOne({ name: product_name });
+    if (!product) {
+      console.warn(`Product '${product_name}' not found in inventory.`);
+    } else {
+      product.current_stock += approved_quantity;
+      product.change_type = "increase";
+      product.quantity_changed = approved_quantity;
+      await product.save();
+    }
+
+    // ✅ STEP 4 — Populate response
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
     )
@@ -203,25 +220,11 @@ const createQualityCheck = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Quality check record created successfully",
+      message: "Quality check created and current stock updated successfully",
       data: populatedQualityCheck,
     });
   } catch (error) {
     console.error("Error creating quality check:", error);
-
-    if (error.name === "ValidationError") {
-      const validationErrors = Object.values(error.errors).map((err) => ({
-        field: err.path,
-        message: err.message,
-      }));
-
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        errors: validationErrors,
-      });
-    }
-
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -229,6 +232,7 @@ const createQualityCheck = async (req, res) => {
     });
   }
 };
+
 
 module.exports = {
   getQualityChecks,

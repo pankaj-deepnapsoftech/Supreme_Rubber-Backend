@@ -11,7 +11,7 @@ const gateManSchema = new Schema(
       type: String,
       required: [true, "PO Number is required"],
     },
-    invoice_number: {
+    invoice_number: {  
       type: String,
       required: [true, "Invoice Number is required"],
     },
