@@ -11,16 +11,6 @@ const qualityCheckSchema = new Schema(
       type: Schema.Types.ObjectId,
       required: [true, "Item ID from gateman entry is required"],
     },
-    product_type: {
-      type: String,
-      required: [true, "Product type is required"],
-      trim: true,
-    },
-    // product_name: {
-    //   type: String,
-    //   required: [true, "Product name is required"],
-    //   trim: true,
-    // },
     approved_quantity: {
       type: Number,
       required: [true, "Approved quantity is required"],
