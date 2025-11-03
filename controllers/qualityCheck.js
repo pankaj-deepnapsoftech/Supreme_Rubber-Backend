@@ -185,6 +185,7 @@ const createQualityCheck = async (req, res) => {
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
+      status: "completed", // Automatically set to completed when submitted
       created_by: req.user?.id,
     });
 

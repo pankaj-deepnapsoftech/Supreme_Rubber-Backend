@@ -30,8 +30,8 @@ const qualityCheckSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "completed", "reviewed"],
-      default: "pending",
+      enum: ["completed"],
+      default: "completed",
     },
     created_by: {
       type: Schema.Types.ObjectId,
