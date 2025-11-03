@@ -64,7 +64,7 @@ const getAvailableProducts = async (req, res) => {
   }
 };
 
-const getQualityChecks = async (req, res) => {
+const getAllQualityChecks = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -111,14 +111,17 @@ const createQualityCheck = async (req, res) => {
   try {
     const validationResult = createQualityCheckSchema.safeParse(req.body);
 
+    console.log("ssdfsdf", validationResult);
+
     if (!validationResult.success) {
       return res.status(400).json({
         success: false,
         message: "Validation errors",
-        errors: validationResult.error.errors.map((err) => ({
-          field: err.path.join("."),
-          message: err.message,
-        })),
+        errors:
+          validationResult.error?.issues?.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })) || [],
       });
     }
 
@@ -230,8 +233,71 @@ const createQualityCheck = async (req, res) => {
   }
 };
 
+const getQualityChecks = async (req, res) => {
+  try {
+    const { gateman_entry_id } = req.query;
+
+    let query = {};
+    if (gateman_entry_id) {
+      query.gateman_entry_id = gateman_entry_id;
+    }
+
+    const qualityChecks = await QualityCheck.find(query)
+      .populate("created_by", "name email")
+      .populate({
+        path: "gateman_entry_id",
+        select: "po_number company_name invoice_number items",
+        populate: {
+          path: "po_ref",
+          select: "po_number",
+        },
+      })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      message: "Quality checks retrieved successfully",
+      data: qualityChecks,
+    });
+  } catch (error) {
+    console.error("Error getting quality checks:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const deleteQualityCheck = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedCheck = await QualityCheck.findByIdAndDelete(id);
+
+    if (!deletedCheck) {
+      return res.status(404).json({
+        success: false,
+        message: "Quality check record not found",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Quality check record deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting quality check:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
-  getQualityChecks,
+  getAllQualityChecks,
   createQualityCheck,
   getAvailableProducts,
+  getQualityChecks,
+  deleteQualityCheck,
 };
