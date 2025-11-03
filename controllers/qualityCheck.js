@@ -4,9 +4,8 @@ const { z } = require("zod");
 
 const createQualityCheckSchema = z.object({
   gateman_entry_id: z.string().min(1, "Gateman entry ID is required"),
-  item_name: z.string().min(1, "Item name is required"),
+  item_id: z.string().min(1, "Item ID is required"),
   product_type: z.string().min(2, "Product type must be at least 2 characters"),
-  // product_name: z.string().min(2, "Product name must be at least 2 characters"),
   approved_quantity: z.number().min(0, "Approved quantity cannot be negative"),
   rejected_quantity: z.number().min(0, "Rejected quantity cannot be negative"),
 });
@@ -23,7 +22,7 @@ const getAvailableProducts = async (req, res) => {
       for (const item of entry.items) {
         const existingChecks = await QualityCheck.find({
           gateman_entry_id: entry._id,
-          item_name: item.item_name,
+          item_id: item._id,
         });
 
         const totalCheckedQuantity = existingChecks.reduce(
@@ -39,6 +38,7 @@ const getAvailableProducts = async (req, res) => {
             gateman_entry_id: entry._id,
             po_number: entry.po_number,
             company_name: entry.company_name,
+            item_id: item._id,
             item_name: item.item_name,
             total_quantity: item.item_quantity,
             already_checked: totalCheckedQuantity,
@@ -127,9 +127,8 @@ const createQualityCheck = async (req, res) => {
 
     const {
       gateman_entry_id,
-      item_name,
+      item_id,
       product_type,
-      // product_name,
       approved_quantity,
       rejected_quantity,
     } = validationResult.data;
@@ -150,7 +149,7 @@ const createQualityCheck = async (req, res) => {
     }
 
     const gatemanItem = gatemanEntry.items.find(
-      (item) => item.item_name === item_name
+      (item) => item._id.toString() === item_id
     );
     if (!gatemanItem) {
       return res.status(404).json({
@@ -161,7 +160,7 @@ const createQualityCheck = async (req, res) => {
 
     const existingChecks = await QualityCheck.find({
       gateman_entry_id,
-      item_name,
+      item_id,
     });
 
     const totalExistingQuantity = existingChecks.reduce(
@@ -187,9 +186,9 @@ const createQualityCheck = async (req, res) => {
 
     const qualityCheck = new QualityCheck({
       gateman_entry_id,
-      item_name,
+      item_id,
+      item_name: gatemanItem.item_name,
       product_type,
-      // product_name,
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
