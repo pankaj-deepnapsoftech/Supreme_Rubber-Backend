@@ -7,7 +7,8 @@ const userRoleRoutes = require("./routes/userRole");
 const productRoutes = require("./routes/product");
 const supplierRoutes = require("./routes/supplier");
 const purchaseOrderRoutes = require("./routes/purchaseOrder");
-const gateManRoutes = require("./routes/gateMan"); 
+const gateManRoutes = require("./routes/gateMan");
+const QualityCheckRoutes = require("./routes/qualityCheck");
 
 
 const app = express();
@@ -18,7 +19,6 @@ require("dotenv").config({ path: `.env.development` });
 
 // PRODUCTION ENVIRONMENT
 // require('dotenv').config();
-
 
 
 const allowedOrigins = [
@@ -57,6 +57,7 @@ app.use("/api/supplier", supplierRoutes);
 app.use("/api/purchase-order", purchaseOrderRoutes);
 // app.use("/api/quality-check", qualityCheckRoutes);
 app.use("/api/gateman", gateManRoutes);
+app.use("/api/quality-check", QualityCheckRoutes);
 
 
 app.listen(process.env.PORT, () => {
