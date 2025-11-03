@@ -21,7 +21,6 @@ require("dotenv").config({ path: `.env.development` });
 // require('dotenv').config();
 
 
-
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
@@ -56,6 +55,7 @@ app.use("/api/role", userRoleRoutes);
 app.use("/api/product", productRoutes);
 app.use("/api/supplier", supplierRoutes);
 app.use("/api/purchase-order", purchaseOrderRoutes);
+// app.use("/api/quality-check", qualityCheckRoutes);
 app.use("/api/gateman", gateManRoutes);
 app.use("/api/quality-check", QualityCheckRoutes);
 

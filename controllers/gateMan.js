@@ -4,9 +4,10 @@ const PurchaseOrder = require("../models/purchaseOrder");
 const Supplier = require("../models/supplier");
 
 // CREATE ENTRY
-const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
+// const BASE_URL = process.env.BASE_URL
 exports.create = TryCatch(async (req, res) => {
+  const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
   let { po_ref, po_number, invoice_number, company_name, items } = req.body;
 
   if (typeof items === "string") {
