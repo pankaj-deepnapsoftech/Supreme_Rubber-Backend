@@ -9,6 +9,8 @@ const supplierRoutes = require("./routes/supplier");
 const purchaseOrderRoutes = require("./routes/purchaseOrder");
 const gateManRoutes = require("./routes/gateMan");
 const QualityCheckRoutes = require("./routes/qualityCheck");
+const bomRoutes = require("./routes/bom");
+const productionRoutes = require("./routes/production");
 
 
 const app = express();
@@ -58,6 +60,8 @@ app.use("/api/purchase-order", purchaseOrderRoutes);
 // app.use("/api/quality-check", qualityCheckRoutes);
 app.use("/api/gateman", gateManRoutes);
 app.use("/api/quality-check", QualityCheckRoutes);
+app.use("/api/bom", bomRoutes);
+app.use("/api/production", productionRoutes);
 
 
 app.listen(process.env.PORT, () => {
