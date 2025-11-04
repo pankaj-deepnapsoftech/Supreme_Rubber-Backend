@@ -5,7 +5,7 @@ const gateManSchema = new Schema(
     po_ref: {
       type: Schema.Types.ObjectId,
       ref: "PurchaseOrder",
-      required: [true, "PO reference is required"],
+      // required: [true, "PO reference is required"],
     },
     po_number: {
       type: String,
