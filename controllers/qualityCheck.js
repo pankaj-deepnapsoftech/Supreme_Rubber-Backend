@@ -1,5 +1,6 @@
 const QualityCheck = require("../models/qualityCheck");
 const GateMan = require("../models/gateMan");
+const Product = require("../models/product");
 const { z } = require("zod");
 
 const createQualityCheckSchema = z.object({
@@ -185,11 +186,41 @@ const createQualityCheck = async (req, res) => {
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
-      status: "completed", // Automatically set to completed when submitted
+      status: "completed",
       created_by: req.user?.id,
     });
 
     const savedQualityCheck = await qualityCheck.save();
+
+    if (approved_quantity > 0) {
+      try {
+        const inventoryProduct = await Product.findOne({
+          name: gatemanItem.item_name,
+        });
+
+        if (inventoryProduct) {
+          const newStock = inventoryProduct.current_stock + approved_quantity;
+
+          await Product.findByIdAndUpdate(inventoryProduct._id, {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "increase",
+            quantity_changed: approved_quantity,
+          });
+
+          console.log(
+            `Inventory updated: ${gatemanItem.item_name} - Added ${approved_quantity} units. New stock: ${newStock}`
+          );
+        } else {
+          console.log(
+            `Product not found in inventory: ${gatemanItem.item_name}`
+          );
+        }
+      } catch (inventoryError) {
+        console.error("Error updating inventory:", inventoryError);
+        // Continue execution even if inventory update fails
+      }
+    }
 
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
@@ -262,17 +293,88 @@ const getQualityChecks = async (req, res) => {
   }
 };
 
-const deleteQualityCheck = async (req, res) => {
+const getQualityCheckById = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedCheck = await QualityCheck.findByIdAndDelete(id);
 
-    if (!deletedCheck) {
+    const qualityCheck = await QualityCheck.findById(id)
+      .populate("created_by", "name email")
+      .populate({
+        path: "gateman_entry_id",
+        select: "po_number company_name invoice_number items",
+        populate: {
+          path: "po_ref",
+          select: "po_number",
+        },
+      });
+
+    if (!qualityCheck) {
       return res.status(404).json({
         success: false,
         message: "Quality check record not found",
       });
     }
+
+    res.status(200).json({
+      success: true,
+      message: "Quality check retrieved successfully",
+      data: qualityCheck,
+    });
+  } catch (error) {
+    console.error("Error getting quality check by ID:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const deleteQualityCheck = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get the quality check record before deletion to adjust inventory
+    const qualityCheck = await QualityCheck.findById(id);
+
+    if (!qualityCheck) {
+      return res.status(404).json({
+        success: false,
+        message: "Quality check record not found",
+      });
+    }
+
+    // If there was approved quantity, reduce it from inventory
+    if (qualityCheck.approved_quantity > 0) {
+      try {
+        const inventoryProduct = await Product.findOne({
+          name: qualityCheck.item_name,
+        });
+
+        if (inventoryProduct) {
+          const newStock = Math.max(
+            0,
+            inventoryProduct.current_stock - qualityCheck.approved_quantity
+          );
+
+          await Product.findByIdAndUpdate(inventoryProduct._id, {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "decrease",
+            quantity_changed: qualityCheck.approved_quantity,
+          });
+
+          console.log(
+            `Inventory updated on deletion: ${qualityCheck.item_name} - Reduced ${qualityCheck.approved_quantity} units. New stock: ${newStock}`
+          );
+        }
+      } catch (inventoryError) {
+        console.error("Error updating inventory on deletion:", inventoryError);
+      }
+    }
+
+    await QualityCheck.findByIdAndDelete(id);
+
     res.status(200).json({
       success: true,
       message: "Quality check record deleted successfully",
@@ -287,9 +389,122 @@ const deleteQualityCheck = async (req, res) => {
   }
 };
 
+const updateQualityCheck = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const validationResult = createQualityCheckSchema.safeParse(req.body);
+
+    if (!validationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation errors",
+        errors:
+          validationResult.error?.issues?.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })) || [],
+      });
+    }
+
+    const { gateman_entry_id, item_id, approved_quantity, rejected_quantity } =
+      validationResult.data;
+
+    // Get the existing quality check
+    const existingQualityCheck = await QualityCheck.findById(id);
+    if (!existingQualityCheck) {
+      return res.status(404).json({
+        success: false,
+        message: "Quality check record not found",
+      });
+    }
+
+    const gatemanEntry = await GateMan.findById(gateman_entry_id);
+    if (!gatemanEntry) {
+      return res.status(404).json({
+        success: false,
+        message: "Gateman entry not found",
+      });
+    }
+
+    const gatemanItem = gatemanEntry.items.find(
+      (item) => item._id.toString() === item_id
+    );
+    if (!gatemanItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in gateman entry",
+      });
+    }
+
+    // Calculate the difference in approved quantity
+    const approvedQuantityDifference =
+      approved_quantity - existingQualityCheck.approved_quantity;
+
+    // Update the quality check
+    const updatedQualityCheck = await QualityCheck.findByIdAndUpdate(
+      id,
+      {
+        approved_quantity,
+        rejected_quantity,
+        total_quantity: approved_quantity + rejected_quantity,
+      },
+      { new: true }
+    )
+      .populate("gateman_entry_id", "po_number company_name invoice_number")
+      .populate("created_by", "name email");
+
+    // Update inventory if there's a change in approved quantity
+    if (approvedQuantityDifference !== 0) {
+      try {
+        const inventoryProduct = await Product.findOne({
+          name: gatemanItem.item_name,
+        });
+
+        if (inventoryProduct) {
+          const newStock =
+            inventoryProduct.current_stock + approvedQuantityDifference;
+
+          await Product.findByIdAndUpdate(inventoryProduct._id, {
+            current_stock: Math.max(0, newStock),
+            updated_stock: Math.max(0, newStock),
+            change_type:
+              approvedQuantityDifference > 0 ? "increase" : "decrease",
+            quantity_changed: Math.abs(approvedQuantityDifference),
+          });
+
+          console.log(
+            `Inventory updated: ${gatemanItem.item_name} - ${
+              approvedQuantityDifference > 0 ? "Added" : "Reduced"
+            } ${Math.abs(
+              approvedQuantityDifference
+            )} units. New stock: ${Math.max(0, newStock)}`
+          );
+        }
+      } catch (inventoryError) {
+        console.error("Error updating inventory:", inventoryError);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Quality check record updated successfully",
+      data: updatedQualityCheck,
+    });
+  } catch (error) {
+    console.error("Error updating quality check:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllQualityChecks,
   createQualityCheck,
+  updateQualityCheck,
+  getQualityCheckById,
   getAvailableProducts,
   getQualityChecks,
   deleteQualityCheck,
