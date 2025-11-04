@@ -8,7 +8,6 @@ exports.create = TryCatch(async (req, res) => {
   if (!data) throw new ErrorHandler("Please provide production data", 400);
   if (!data.bom) throw new ErrorHandler("BOM is required", 400);
 
-  // Fetch BOM to get all related data
   const bom = await BOM.findById(data.bom)
     .populate({
       path: "rawMaterials.raw_material",
@@ -25,44 +24,60 @@ exports.create = TryCatch(async (req, res) => {
 
   if (!bom) throw new ErrorHandler("BOM not found", 404);
 
-  // Prepare finished goods from BOM data
   const finishedGoods = Array.isArray(data.finished_goods)
     ? data.finished_goods.map((fg) => {
         const compound =
-          bom.compoundingStandards?.find((cs) => cs.compound_code === fg.compound_code) ||
+          bom.compoundingStandards?.find(
+            (cs) => cs.compound_code === fg.compound_code
+          ) ||
           bom.compoundingStandards?.[0] ||
           bom;
 
         return {
           bom: data.bom,
-          compound_code: fg.compound_code || compound.compound_code || bom.compound_code,
-          compound_name: fg.compound_name || compound.compound_name || bom.compound_name,
+          compound_code:
+            fg.compound_code || compound.compound_code || bom.compound_code,
+          compound_name:
+            fg.compound_name || compound.compound_name || bom.compound_name,
           est_qty: fg.est_qty || 0,
-          uom: fg.uom || compound.product_snapshot?.uom || bom.compound?.uom || "",
+          uom:
+            fg.uom || compound.product_snapshot?.uom || bom.compound?.uom || "",
           prod_qty: fg.prod_qty || 0,
           remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
-          category: fg.category || compound.product_snapshot?.category || bom.compound?.category || "",
+          category:
+            fg.category ||
+            compound.product_snapshot?.category ||
+            bom.compound?.category ||
+            "",
           total_cost: fg.total_cost || 0,
         };
       })
     : [];
 
-  // Prepare raw materials from BOM data
   const rawMaterials = Array.isArray(data.raw_materials)
     ? data.raw_materials.map((rm) => {
         const bomRm = bom.rawMaterials?.find(
-          (r) => r.raw_material_code === rm.raw_material_code || r.raw_material_name === rm.raw_material_name
+          (r) =>
+            r.raw_material_code === rm.raw_material_code ||
+            r.raw_material_name === rm.raw_material_name
         );
 
         return {
           raw_material_id: rm.raw_material_id || bomRm?.raw_material || null,
-          raw_material_name: rm.raw_material_name || bomRm?.raw_material_name || "",
-          raw_material_code: rm.raw_material_code || bomRm?.raw_material_code || "",
+          raw_material_name:
+            rm.raw_material_name || bomRm?.raw_material_name || "",
+          raw_material_code:
+            rm.raw_material_code || bomRm?.raw_material_code || "",
           est_qty: rm.est_qty || bomRm?.current_stock || 0,
           uom: rm.uom || bomRm?.uom || bomRm?.product_snapshot?.uom || "",
           used_qty: rm.used_qty || 0,
-          remain_qty: (rm.est_qty || bomRm?.current_stock || 0) - (rm.used_qty || 0),
-          category: rm.category || bomRm?.category || bomRm?.product_snapshot?.category || "",
+          remain_qty:
+            (rm.est_qty || bomRm?.current_stock || 0) - (rm.used_qty || 0),
+          category:
+            rm.category ||
+            bomRm?.category ||
+            bomRm?.product_snapshot?.category ||
+            "",
           total_cost: rm.total_cost || 0,
           weight: rm.weight || bomRm?.weight || "",
           tolerance: rm.tolerance || bomRm?.tolerance || "",
@@ -71,16 +86,20 @@ exports.create = TryCatch(async (req, res) => {
       })
     : [];
 
-  // Prepare processes from BOM data
   const processes = Array.isArray(data.processes)
     ? data.processes.map((proc, idx) => {
-        const bomProcess = bom.processes?.[idx] || bom[`process${idx + 1}`] || "";
+        const bomProcess =
+          bom.processes?.[idx] || bom[`process${idx + 1}`] || "";
         return {
           process_name: proc.process_name || bomProcess || "",
           work_done: proc.work_done || 0,
           start: proc.start || false,
           done: proc.done || false,
-          status: proc.done ? "completed" : proc.start ? "in_progress" : "pending",
+          status: proc.done
+            ? "completed"
+            : proc.start
+            ? "in_progress"
+            : "pending",
         };
       })
     : (bom.processes || [])
@@ -93,12 +112,19 @@ exports.create = TryCatch(async (req, res) => {
         }))
         .filter((p) => p.process_name);
 
-  // Derive overall production status from processes if not explicitly provided
   let derivedStatus = "pending";
   if (Array.isArray(processes) && processes.length > 0) {
-    const allDone = processes.every((p) => p.done === true || p.status === "completed");
-    const anyStarted = processes.some((p) => p.start === true || p.status === "in_progress");
-    derivedStatus = allDone ? "completed" : anyStarted ? "in_progress" : "pending";
+    const allDone = processes.every(
+      (p) => p.done === true || p.status === "completed"
+    );
+    const anyStarted = processes.some(
+      (p) => p.start === true || p.status === "in_progress"
+    );
+    derivedStatus = allDone
+      ? "completed"
+      : anyStarted
+      ? "in_progress"
+      : "pending";
   }
 
   const production = await Production.create({
@@ -142,7 +168,8 @@ exports.details = TryCatch(async (req, res) => {
   const production = await Production.findById(id)
     .populate({
       path: "bom",
-      select: "bom_id compound_name compound_code rawMaterials compoundingStandards processes",
+      select:
+        "bom_id compound_name compound_code rawMaterials compoundingStandards processes",
     })
     .populate({
       path: "raw_materials.raw_material_id",
@@ -162,7 +189,6 @@ exports.update = TryCatch(async (req, res) => {
   const { _id } = data;
   if (!_id) throw new ErrorHandler("Please provide production id (_id)", 400);
 
-  // Recalculate remain_qty for finished goods
   if (Array.isArray(data.finished_goods)) {
     data.finished_goods = data.finished_goods.map((fg) => ({
       ...fg,
@@ -170,7 +196,6 @@ exports.update = TryCatch(async (req, res) => {
     }));
   }
 
-  // Recalculate remain_qty for raw materials
   if (Array.isArray(data.raw_materials)) {
     data.raw_materials = data.raw_materials.map((rm) => ({
       ...rm,
@@ -178,20 +203,28 @@ exports.update = TryCatch(async (req, res) => {
     }));
   }
 
-  // Update process status based on start/done flags
   if (Array.isArray(data.processes)) {
     data.processes = data.processes.map((proc) => ({
       ...proc,
       status: proc.done ? "completed" : proc.start ? "in_progress" : "pending",
     }));
 
-    // Derive overall production status from updated processes
-    const allDone = data.processes.every((p) => p.done === true || p.status === "completed");
-    const anyStarted = data.processes.some((p) => p.start === true || p.status === "in_progress");
-    data.status = allDone ? "completed" : anyStarted ? "in_progress" : "pending";
+    const allDone = data.processes.every(
+      (p) => p.done === true || p.status === "completed"
+    );
+    const anyStarted = data.processes.some(
+      (p) => p.start === true || p.status === "in_progress"
+    );
+    data.status = allDone
+      ? "completed"
+      : anyStarted
+      ? "in_progress"
+      : "pending";
   }
 
-  const production = await Production.findByIdAndUpdate(_id, data, { new: true })
+  const production = await Production.findByIdAndUpdate(_id, data, {
+    new: true,
+  })
     .populate({
       path: "bom",
       select: "bom_id compound_name compound_code",
@@ -202,7 +235,14 @@ exports.update = TryCatch(async (req, res) => {
     });
 
   if (!production) throw new ErrorHandler("Production not found", 404);
-  res.status(200).json({ status: 200, success: true, message: "Production updated", production });
+  res
+    .status(200)
+    .json({
+      status: 200,
+      success: true,
+      message: "Production updated",
+      production,
+    });
 });
 
 exports.remove = TryCatch(async (req, res) => {
@@ -210,6 +250,181 @@ exports.remove = TryCatch(async (req, res) => {
   if (!id) throw new ErrorHandler("Please provide production id", 400);
   const deleted = await Production.findByIdAndDelete(id);
   if (!deleted) throw new ErrorHandler("Production not found", 404);
-  res.status(200).json({ status: 200, success: true, message: "Production deleted" });
+  res
+    .status(200)
+    .json({ status: 200, success: true, message: "Production deleted" });
 });
 
+exports.getProductionGraphData = TryCatch(async (req, res) => {
+  const { period = "weekly", year = new Date().getFullYear() } = req.query;
+
+  let groupBy, dateFormat, periodStart, periodEnd;
+  const currentDate = new Date();
+
+  switch (period.toLowerCase()) {
+    case "weekly":
+      periodStart = new Date(currentDate);
+      periodStart.setDate(currentDate.getDate() - 6);
+      periodEnd = new Date(currentDate);
+      periodEnd.setHours(23, 59, 59, 999);
+
+      groupBy = {
+        $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+      };
+      break;
+
+    case "monthly":
+      periodStart = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        1
+      );
+      periodEnd = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth() + 1,
+        0
+      );
+      periodEnd.setHours(23, 59, 59, 999);
+
+      groupBy = {
+        $dayOfMonth: "$createdAt",
+      };
+      break;
+
+    case "yearly":
+      periodStart = new Date(year, 0, 1);
+      periodEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+
+      groupBy = {
+        $month: "$createdAt",
+      };
+      break;
+
+    default:
+      throw new ErrorHandler(
+        "Invalid period. Use 'weekly', 'monthly', or 'yearly'",
+        400
+      );
+  }
+
+  const productionData = await Production.aggregate([
+    {
+      $match: {
+        createdAt: {
+          $gte: periodStart,
+          $lte: periodEnd,
+        },
+      },
+    },
+    {
+      $group: {
+        _id: groupBy,
+        count: { $sum: 1 },
+        totalEstQty: {
+          $sum: {
+            $sum: "$finished_goods.est_qty",
+          },
+        },
+        totalProdQty: {
+          $sum: {
+            $sum: "$finished_goods.prod_qty",
+          },
+        },
+      },
+    },
+    {
+      $sort: { _id: 1 },
+    },
+  ]);
+
+  let formattedData = [];
+
+  if (period.toLowerCase() === "weekly") {
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(periodStart);
+      date.setDate(periodStart.getDate() + i);
+      const dateString = date.toISOString().split("T")[0];
+
+      const dayData = productionData.find((d) => d._id === dateString);
+
+      formattedData.push({
+        day: days[date.getDay()],
+        date: dateString,
+        productions: dayData ? dayData.count : 0,
+        totalEstQty: dayData ? dayData.totalEstQty : 0,
+        totalProdQty: dayData ? dayData.totalProdQty : 0,
+      });
+    }
+  } else if (period.toLowerCase() === "monthly") {
+    const daysInMonth = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + 1,
+      0
+    ).getDate();
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayData = productionData.find((d) => d._id === day);
+
+      formattedData.push({
+        date: day.toString(),
+        productions: dayData ? dayData.count : 0,
+        totalEstQty: dayData ? dayData.totalEstQty : 0,
+        totalProdQty: dayData ? dayData.totalProdQty : 0,
+      });
+    }
+  } else if (period.toLowerCase() === "yearly") {
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    for (let month = 1; month <= 12; month++) {
+      const monthData = productionData.find((d) => d._id === month);
+
+      formattedData.push({
+        month: months[month - 1],
+        monthNumber: month,
+        productions: monthData ? monthData.count : 0,
+        totalEstQty: monthData ? monthData.totalEstQty : 0,
+        totalProdQty: monthData ? monthData.totalProdQty : 0,
+      });
+    }
+  }
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production graph data retrieved successfully",
+    data: {
+      period: period.toLowerCase(),
+      year:
+        period.toLowerCase() === "yearly" ? year : currentDate.getFullYear(),
+      graphData: formattedData,
+      summary: {
+        totalProductions: productionData.reduce(
+          (sum, item) => sum + item.count,
+          0
+        ),
+        totalEstQty: productionData.reduce(
+          (sum, item) => sum + item.totalEstQty,
+          0
+        ),
+        totalProdQty: productionData.reduce(
+          (sum, item) => sum + item.totalProdQty,
+          0
+        ),
+      },
+    },
+  });
+});
