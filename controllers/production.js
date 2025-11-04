@@ -371,3 +371,31 @@ exports.reject = TryCatch(async (req, res) => {
   return res.status(200).json({ status: 200, success: true, message: "Production rejected" });
 });
 
+// Basic graph data endpoint: counts by status and recent creations timeline
+exports.getProductionGraphData = TryCatch(async (req, res) => {
+  // Counts by status
+  const byStatus = await Production.aggregate([
+    { $group: { _id: "$status", count: { $sum: 1 } } },
+  ]);
+
+  // Last 14 days creations per day
+  const since = new Date();
+  since.setDate(since.getDate() - 13);
+  const timeline = await Production.aggregate([
+    { $match: { createdAt: { $gte: since } } },
+    {
+      $group: {
+        _id: {
+          y: { $year: "$createdAt" },
+          m: { $month: "$createdAt" },
+          d: { $dayOfMonth: "$createdAt" },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { "_id.y": 1, "_id.m": 1, "_id.d": 1 } },
+  ]);
+
+  res.status(200).json({ status: 200, success: true, data: { byStatus, timeline } });
+});
+
