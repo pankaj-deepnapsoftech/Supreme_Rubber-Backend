@@ -1,14 +1,10 @@
 const QualityCheck = require("../models/qualityCheck");
 const GateMan = require("../models/gateMan");
-const { z } = require("zod"); 
-const Product = require("../models/product");
-
+const { z } = require("zod");
 
 const createQualityCheckSchema = z.object({
   gateman_entry_id: z.string().min(1, "Gateman entry ID is required"),
-  item_name: z.string().min(1, "Item name is required"),
-  product_type: z.string().min(2, "Product type must be at least 2 characters"),
-  product_name: z.string().min(2, "Product name must be at least 2 characters"),
+  item_id: z.string().min(1, "Item ID is required"),
   approved_quantity: z.number().min(0, "Approved quantity cannot be negative"),
   rejected_quantity: z.number().min(0, "Rejected quantity cannot be negative"),
 });
@@ -25,7 +21,7 @@ const getAvailableProducts = async (req, res) => {
       for (const item of entry.items) {
         const existingChecks = await QualityCheck.find({
           gateman_entry_id: entry._id,
-          item_name: item.item_name,
+          item_id: item._id,
         });
 
         const totalCheckedQuantity = existingChecks.reduce(
@@ -41,6 +37,7 @@ const getAvailableProducts = async (req, res) => {
             gateman_entry_id: entry._id,
             po_number: entry.po_number,
             company_name: entry.company_name,
+            item_id: item._id,
             item_name: item.item_name,
             total_quantity: item.item_quantity,
             already_checked: totalCheckedQuantity,
@@ -66,7 +63,7 @@ const getAvailableProducts = async (req, res) => {
   }
 };
 
-const getQualityChecks = async (req, res) => {
+const getAllQualityChecks = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -113,25 +110,22 @@ const createQualityCheck = async (req, res) => {
   try {
     const validationResult = createQualityCheckSchema.safeParse(req.body);
 
+    console.log("ssdfsdf", validationResult);
+
     if (!validationResult.success) {
       return res.status(400).json({
         success: false,
         message: "Validation errors",
-        errors: validationResult.error.errors.map((err) => ({
-          field: err.path.join("."),
-          message: err.message,
-        })),
+        errors:
+          validationResult.error?.issues?.map((err) => ({
+            field: err.path.join("."),
+            message: err.message,
+          })) || [],
       });
     }
 
-    const {
-      gateman_entry_id,
-      item_name,
-      product_type,
-      product_name,
-      approved_quantity,
-      rejected_quantity,
-    } = validationResult.data;
+    const { gateman_entry_id, item_id, approved_quantity, rejected_quantity } =
+      validationResult.data;
 
     const gatemanEntry = await GateMan.findById(gateman_entry_id);
     if (!gatemanEntry) {
@@ -149,7 +143,7 @@ const createQualityCheck = async (req, res) => {
     }
 
     const gatemanItem = gatemanEntry.items.find(
-      (item) => item.item_name === item_name
+      (item) => item._id.toString() === item_id
     );
     if (!gatemanItem) {
       return res.status(404).json({
@@ -158,10 +152,9 @@ const createQualityCheck = async (req, res) => {
       });
     }
 
-    // ✅ Quantity validation
     const existingChecks = await QualityCheck.find({
       gateman_entry_id,
-      item_name,
+      item_id,
     });
 
     const totalExistingQuantity = existingChecks.reduce(
@@ -175,43 +168,29 @@ const createQualityCheck = async (req, res) => {
     if (newTotalQuantity > gatemanItem.item_quantity) {
       return res.status(400).json({
         success: false,
-        message: `Total quantity cannot exceed available quantity.`,
+        message: `Total quantity cannot exceed available quantity. Available: ${gatemanItem.item_quantity}, Already checked: ${totalExistingQuantity}, Requested: ${requestedTotalQuantity}`,
         details: {
           available_quantity: gatemanItem.item_quantity,
           already_checked: totalExistingQuantity,
-          remaining_quantity:
-            gatemanItem.item_quantity - totalExistingQuantity,
+          remaining_quantity: gatemanItem.item_quantity - totalExistingQuantity,
           requested_quantity: requestedTotalQuantity,
         },
       });
     }
 
-    // ✅ Create quality check entry
     const qualityCheck = new QualityCheck({
       gateman_entry_id,
-      item_name,
-      product_type,
-      product_name,
+      item_id,
+      item_name: gatemanItem.item_name,
       approved_quantity,
       rejected_quantity,
       max_allowed_quantity: gatemanItem.item_quantity,
+      status: "completed", // Automatically set to completed when submitted
       created_by: req.user?.id,
     });
 
     const savedQualityCheck = await qualityCheck.save();
 
-    // ✅ STEP 3 — Increase current stock in Product inventory
-    const product = await Product.findOne({ name: product_name });
-    if (!product) {
-      console.warn(`Product '${product_name}' not found in inventory.`);
-    } else {
-      product.current_stock += approved_quantity;
-      product.change_type = "increase";
-      product.quantity_changed = approved_quantity;
-      await product.save();
-    }
-
-    // ✅ STEP 4 — Populate response
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
     )
@@ -220,11 +199,25 @@ const createQualityCheck = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Quality check created and current stock updated successfully",
+      message: "Quality check record created successfully",
       data: populatedQualityCheck,
     });
   } catch (error) {
     console.error("Error creating quality check:", error);
+
+    if (error.name === "ValidationError") {
+      const validationErrors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: validationErrors,
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -233,9 +226,71 @@ const createQualityCheck = async (req, res) => {
   }
 };
 
+const getQualityChecks = async (req, res) => {
+  try {
+    const { gateman_entry_id } = req.query;
+
+    let query = {};
+    if (gateman_entry_id) {
+      query.gateman_entry_id = gateman_entry_id;
+    }
+
+    const qualityChecks = await QualityCheck.find(query)
+      .populate("created_by", "name email")
+      .populate({
+        path: "gateman_entry_id",
+        select: "po_number company_name invoice_number items",
+        populate: {
+          path: "po_ref",
+          select: "po_number",
+        },
+      })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      message: "Quality checks retrieved successfully",
+      data: qualityChecks,
+    });
+  } catch (error) {
+    console.error("Error getting quality checks:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const deleteQualityCheck = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedCheck = await QualityCheck.findByIdAndDelete(id);
+
+    if (!deletedCheck) {
+      return res.status(404).json({
+        success: false,
+        message: "Quality check record not found",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Quality check record deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting quality check:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
 
 module.exports = {
-  getQualityChecks,
+  getAllQualityChecks,
   createQualityCheck,
   getAvailableProducts,
+  getQualityChecks,
+  deleteQualityCheck,
 };
