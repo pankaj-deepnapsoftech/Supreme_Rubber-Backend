@@ -139,6 +139,7 @@ exports.prefillFromPO = TryCatch(async (req, res) => {
 
 exports.changeStatus = TryCatch(async (req, res) => {
   const { id } = req.params;
+  console.log(id)
   const entry = await GateMan.findById(id);
   if (!entry) throw new ErrorHandler("Entry not found", 404);
 
