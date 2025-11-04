@@ -1,5 +1,6 @@
 const Production = require("../models/production");
 const BOM = require("../models/bom");
+const Product = require("../models/product");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 
 exports.create = TryCatch(async (req, res) => {
@@ -25,6 +26,9 @@ exports.create = TryCatch(async (req, res) => {
 
   if (!bom) throw new ErrorHandler("BOM not found", 404);
 
+  // Fetch minimal product pricing info to compute total cost if needed
+  const products = await Product.find({}, "product_id name price latest_price updated_price").lean();
+
   // Prepare finished goods from BOM data
   const finishedGoods = Array.isArray(data.finished_goods)
     ? data.finished_goods.map((fg) => {
@@ -33,19 +37,33 @@ exports.create = TryCatch(async (req, res) => {
           bom.compoundingStandards?.[0] ||
           bom;
 
+        const estQty = fg.est_qty || 0;
+        const productMatch = products.find(
+          (p) => p.product_id === (fg.compound_code || compound.compound_code || bom.compound_code) || p.name === (fg.compound_name || compound.compound_name || bom.compound_name)
+        );
+        const unitPrice =
+          (typeof productMatch?.updated_price === "number" ? productMatch.updated_price : undefined) ??
+          (typeof productMatch?.latest_price === "number" ? productMatch.latest_price : undefined) ??
+          (typeof productMatch?.price === "number" ? productMatch.price : 0);
+
         return {
           bom: data.bom,
           compound_code: fg.compound_code || compound.compound_code || bom.compound_code,
           compound_name: fg.compound_name || compound.compound_name || bom.compound_name,
-          est_qty: fg.est_qty || 0,
+          est_qty: estQty,
           uom: fg.uom || compound.product_snapshot?.uom || bom.compound?.uom || "",
           prod_qty: fg.prod_qty || 0,
-          remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
+          remain_qty: estQty - (fg.prod_qty || 0),
           category: fg.category || compound.product_snapshot?.category || bom.compound?.category || "",
-          total_cost: fg.total_cost || 0,
+          total_cost: typeof fg.total_cost === "number" ? fg.total_cost : estQty * (unitPrice || 0),
         };
       })
     : [];
+
+  // Compound estimated qty to scale raw materials, if available
+  const compoundEstQty = Array.isArray(finishedGoods) && finishedGoods.length > 0
+    ? (finishedGoods[0]?.est_qty || 0)
+    : 0;
 
   // Prepare raw materials from BOM data
   const rawMaterials = Array.isArray(data.raw_materials)
@@ -54,16 +72,38 @@ exports.create = TryCatch(async (req, res) => {
           (r) => r.raw_material_code === rm.raw_material_code || r.raw_material_name === rm.raw_material_name
         );
 
+      // Match product to get price (by code, name, or id)
+      const productMatch = (products || []).find(
+        (p) =>
+          p.product_id === (rm.raw_material_code || bomRm?.raw_material_code) ||
+          p.name === (rm.raw_material_name || bomRm?.raw_material_name) ||
+          String(p._id) === String(rm.raw_material_id || bomRm?.raw_material || "")
+      );
+      const unitPrice =
+        (typeof productMatch?.updated_price === "number" ? productMatch.updated_price : undefined) ??
+        (typeof productMatch?.latest_price === "number" ? productMatch.latest_price : undefined) ??
+        (typeof productMatch?.price === "number" ? productMatch.price : 0);
+
         return {
           raw_material_id: rm.raw_material_id || bomRm?.raw_material || null,
           raw_material_name: rm.raw_material_name || bomRm?.raw_material_name || "",
           raw_material_code: rm.raw_material_code || bomRm?.raw_material_code || "",
-          est_qty: rm.est_qty || bomRm?.current_stock || 0,
+        // Default estimated qty from BOM weight × compound est qty if not provided
+        est_qty: (typeof rm.est_qty !== "undefined" && rm.est_qty !== null && rm.est_qty !== "")
+          ? rm.est_qty
+          : ((bomRm?.weight ? (parseFloat(bomRm.weight) || 0) : 0) * (compoundEstQty || 0)),
           uom: rm.uom || bomRm?.uom || bomRm?.product_snapshot?.uom || "",
           used_qty: rm.used_qty || 0,
-          remain_qty: (rm.est_qty || bomRm?.current_stock || 0) - (rm.used_qty || 0),
+        remain_qty: (
+          (typeof rm.est_qty !== "undefined" && rm.est_qty !== null && rm.est_qty !== "")
+            ? rm.est_qty
+            : ((bomRm?.weight ? (parseFloat(bomRm.weight) || 0) : 0) * (compoundEstQty || 0))
+        ) - (rm.used_qty || 0),
           category: rm.category || bomRm?.category || bomRm?.product_snapshot?.category || "",
-          total_cost: rm.total_cost || 0,
+        total_cost: (typeof rm.total_cost === "number" ? rm.total_cost : undefined) ?? (
+          ((typeof rm.est_qty !== "undefined" && rm.est_qty !== null && rm.est_qty !== "") ? rm.est_qty : ((bomRm?.weight ? (parseFloat(bomRm.weight) || 0) : 0) * (compoundEstQty || 0)))
+          * (unitPrice || 0)
+        ),
           weight: rm.weight || bomRm?.weight || "",
           tolerance: rm.tolerance || bomRm?.tolerance || "",
           code_no: rm.code_no || bomRm?.code_no || "",
@@ -211,5 +251,93 @@ exports.remove = TryCatch(async (req, res) => {
   const deleted = await Production.findByIdAndDelete(id);
   if (!deleted) throw new ErrorHandler("Production not found", 404);
   res.status(200).json({ status: 200, success: true, message: "Production deleted" });
+});
+
+// Mark production ready for QC (explicit send from UI)
+exports.markReadyForQC = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  if (!id) throw new ErrorHandler("Please provide production id", 400);
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { ready_for_qc: true },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  res.status(200).json({ status: 200, success: true, message: "Marked ready for Quality Check", production: updated });
+});
+
+  // Approve a completed production: decrement raw materials, increment finished goods in inventory
+exports.approve = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  if (!id) throw new ErrorHandler("Please provide production id", 400);
+  const production = await Production.findById(id);
+  if (!production) throw new ErrorHandler("Production not found", 404);
+
+  // Process raw materials: prefer used_qty else est_qty
+  const rawMaterials = Array.isArray(production.raw_materials) ? production.raw_materials : [];
+  for (const rm of rawMaterials) {
+    const qtyToConsume = (typeof rm.used_qty === "number" && rm.used_qty > 0) ? rm.used_qty : (rm.est_qty || 0);
+    if (qtyToConsume > 0) {
+      // Try by ObjectId first
+      let product = rm.raw_material_id ? await Product.findById(rm.raw_material_id) : null;
+      if (!product && (rm.raw_material_code || rm.raw_material_name)) {
+        // Fallback by code or name
+        product = await Product.findOne({
+          $or: [
+            { product_id: rm.raw_material_code || "__none__" },
+            { name: rm.raw_material_name || "__none__" },
+          ],
+        });
+      }
+      if (product) {
+        const nextStock = Math.max(0, (product.current_stock || 0) - qtyToConsume);
+        await Product.findByIdAndUpdate(product._id, {
+          current_stock: nextStock,
+          updated_stock: nextStock,
+          change_type: "decrease",
+          quantity_changed: qtyToConsume,
+        });
+      }
+    }
+  }
+
+  // Process finished goods: prefer prod_qty else est_qty (use first finished good)
+  const fg = (Array.isArray(production.finished_goods) ? production.finished_goods : [])[0] || {};
+  const fgQty = (typeof fg.prod_qty === "number" && fg.prod_qty > 0) ? fg.prod_qty : (fg.est_qty || 0);
+  if (fgQty > 0) {
+    let fgProduct = null;
+    if (production.bom) {
+      // Try to find by compound code/name from finished good
+      fgProduct = await Product.findOne({
+        $or: [
+          { product_id: fg.compound_code || "__none__" },
+          { name: fg.compound_name || "__none__" },
+        ],
+      });
+    }
+    if (fgProduct) {
+      const nextStock = (fgProduct.current_stock || 0) + fgQty;
+      await Product.findByIdAndUpdate(fgProduct._id, {
+        current_stock: nextStock,
+        updated_stock: nextStock,
+        change_type: "increase",
+        quantity_changed: fgQty,
+      });
+    }
+  }
+
+  // Mark QC done and approved
+  await Production.findByIdAndUpdate(id, { qc_status: "approved", qc_done: true });
+  return res.status(200).json({ status: 200, success: true, message: "Production approved and inventory updated" });
+});
+
+// Reject a production: for now just acknowledge; frontend can reflect status locally
+exports.reject = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  if (!id) throw new ErrorHandler("Please provide production id", 400);
+  const production = await Production.findById(id);
+  if (!production) throw new ErrorHandler("Production not found", 404);
+  await Production.findByIdAndUpdate(id, { qc_status: "rejected", qc_done: true });
+  return res.status(200).json({ status: 200, success: true, message: "Production rejected" });
 });
 

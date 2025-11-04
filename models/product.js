@@ -4,7 +4,7 @@ const productSchema = new Schema(
   {
     inventory_category: {
       type: String,
-      enum: ["direct", "indirect"],
+      enum: ["Direct", "indirect"],
       required: [true, "Category is a required field"],
     },
     name: {
@@ -70,12 +70,12 @@ const productSchema = new Schema(
     },
     item_type: {
       type: String,
-      enum: ["buy", "sell", "both"],
+      enum: ["Buy", "Sell", "both"],
       required: [true, "Item type is a required field"],
     },
     product_or_service: {
       type: String,
-      enum: ["product", "service"],
+      enum: ["Product", "Service"],
       required: [true, "Product/Service is a required field"],
     },
     sub_category: {
