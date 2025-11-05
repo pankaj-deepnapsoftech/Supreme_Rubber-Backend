@@ -399,6 +399,101 @@ exports.getProductionGraphData = TryCatch(async (req, res) => {
   res.status(200).json({ status: 200, success: true, data: { byStatus, timeline } });
 });
 
+// Status stats for dashboard (current week/month/year only)
+exports.statusStats = TryCatch(async (req, res) => {
+  const { period = "weekly" } = req.query;
+
+  const now = new Date();
+  const startOfWeek = () => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday
+    d.setDate(d.getDate() + diff);
+    return d;
+  };
+  const endOfWeek = () => {
+    const s = startOfWeek();
+    const e = new Date(s);
+    e.setDate(s.getDate() + 7);
+    return e;
+  };
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const endOfYear = new Date(now.getFullYear() + 1, 0, 1);
+
+  let range;
+  if (period === "weekly") range = { $gte: startOfWeek(), $lt: endOfWeek() };
+  else if (period === "monthly") range = { $gte: startOfMonth, $lt: endOfMonth };
+  else if (period === "yearly") range = { $gte: startOfYear, $lt: endOfYear };
+  else
+    return res
+      .status(400)
+      .json({ status: 400, success: false, message: "Invalid period" });
+
+  const counts = await Production.aggregate([
+    { $match: { createdAt: range } },
+    {
+      $group: {
+        _id: "$status",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const toMap = Object.fromEntries(counts.map((c) => [c._id || "unknown", c.count]));
+  const data = {
+    pending: toMap["pending"] || 0,
+    in_progress: toMap["in_progress"] || 0,
+    completed: toMap["completed"] || 0,
+  };
+
+  return res.status(200).json({ status: 200, success: true, period, data });
+});
+
+// QC stats (Approved vs Rejected) for current week/month/year
+exports.qcStats = TryCatch(async (req, res) => {
+  const { period = "weekly" } = req.query;
+
+  const now = new Date();
+  const startOfWeek = () => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday
+    d.setDate(d.getDate() + diff);
+    return d;
+  };
+  const endOfWeek = () => {
+    const s = startOfWeek();
+    const e = new Date(s);
+    e.setDate(s.getDate() + 7);
+    return e;
+  };
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const endOfYear = new Date(now.getFullYear() + 1, 0, 1);
+
+  let range;
+  if (period === "weekly") range = { $gte: startOfWeek(), $lt: endOfWeek() };
+  else if (period === "monthly") range = { $gte: startOfMonth, $lt: endOfMonth };
+  else if (period === "yearly") range = { $gte: startOfYear, $lt: endOfYear };
+  else return res.status(400).json({ status: 400, success: false, message: "Invalid period" });
+
+  const grouped = await Production.aggregate([
+    { $match: { qc_done: true, updatedAt: range } },
+    { $group: { _id: "$qc_status", count: { $sum: 1 } } },
+  ]);
+
+  const map = Object.fromEntries(grouped.map((g) => [g._id || "unknown", g.count]));
+  const approved = map["approved"] || 0;
+  const rejected = map["rejected"] || 0;
+
+  return res.status(200).json({ status: 200, success: true, period, data: { approved, rejected } });
+});
+
 // Mark production ready for QC (explicit send from UI)
 exports.markReadyForQC = TryCatch(async (req, res) => {
   const { id } = req.params;
