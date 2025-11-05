@@ -173,8 +173,16 @@ exports.create = TryCatch(async (req, res) => {
 });
 
 exports.all = TryCatch(async (req, res) => {
+  // Parse pagination query parameters
+  const page = parseInt(req.query.page, 10) || 1; // Default page = 1
+  const limit = parseInt(req.query.limit, 10) || 10; // Default limit = 10
+  const skip = (page - 1) * limit;
+
+  // Fetch paginated data
   const list = await Production.find({})
     .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
     .populate({
       path: "bom",
       select: "bom_id compound_name compound_code",
@@ -188,8 +196,23 @@ exports.all = TryCatch(async (req, res) => {
       select: "name email",
     });
 
-  res.status(200).json({ status: 200, success: true, productions: list });
+  // Count total documents for pagination info
+  const total = await Production.countDocuments();
+
+  // Respond with paginated results
+  res.status(200).json({
+    status: 200,
+    success: true,
+    productions: list,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    hasNextPage: page * limit < total,
+    hasPrevPage: page > 1,
+  });
 });
+
 
 exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;

@@ -59,18 +59,32 @@ exports.create = TryCatch(async (req, res) => {
   });
 });
 
-// GET all POs (with supplier details)
 exports.all = TryCatch(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+
+  const skip = (page - 1) * limit;
+
+  const total = await PurchaseOrder.countDocuments();
+
   const pos = await PurchaseOrder.find()
     .populate("supplier", "supplier_id name email company_name location")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
 
   res.status(200).json({
     status: 200,
     success: true,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
     pos,
   });
 });
+
 
 
 // GET PO by ID (with supplier details)

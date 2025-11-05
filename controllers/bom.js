@@ -109,8 +109,16 @@ exports.create = TryCatch(async (req, res) => {
 });
 
 exports.all = TryCatch(async (req, res) => {
+  // Parse query parameters
+  const page = parseInt(req.query.page, 10) || 1; // default 1
+  const limit = parseInt(req.query.limit, 10) || 10; // default 10
+  const skip = (page - 1) * limit;
+
+  // Fetch paginated BOMs
   const list = await BOM.find({})
     .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
     .populate({
       path: "rawMaterials.raw_material",
       select: "uom category current_stock name product_id",
@@ -124,8 +132,22 @@ exports.all = TryCatch(async (req, res) => {
       select: "uom category current_stock name product_id",
     });
 
-  res.status(200).json({ status: 200, success: true, boms: list });
+  // Get total count for pagination info
+  const total = await BOM.countDocuments();
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    boms: list,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    hasNextPage: page * limit < total,
+    hasPrevPage: page > 1,
+  });
 });
+
 
 exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;

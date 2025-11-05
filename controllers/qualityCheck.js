@@ -90,12 +90,9 @@ const getAllQualityChecks = async (req, res) => {
       success: true,
       message: "Quality checks retrieved successfully",
       data: qualityChecks,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalItems: total,
-        itemsPerPage: limit,
-      },
+      page,
+      limit,
+      total,
     });
   } catch (error) {
     console.error("Error getting quality checks:", error);
