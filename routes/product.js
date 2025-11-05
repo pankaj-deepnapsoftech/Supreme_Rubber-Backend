@@ -21,6 +21,7 @@ const {
   clearUpdatedPrice,
   clearUpdatedStock,
   removeFromInventoryShortages,
+  inventoryStats,
 } = require("../controllers/product");
 const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isSuper } = require("../middlewares/isSuper");
@@ -41,6 +42,7 @@ router
 
 // Get operations
 router.get("/all", isAuthenticated, all);
+router.get("/inventory-stats", isAuthenticated, inventoryStats);
 // router.get("/unapproved", isAuthenticated, isSuper, unapproved);
 // router.get("/raw-materials", isAuthenticated, rawMaterials);
 router.get("/:id", isAuthenticated, isAllowed, details);

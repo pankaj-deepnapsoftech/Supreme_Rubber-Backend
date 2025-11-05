@@ -173,3 +173,50 @@ exports.changeStatus = TryCatch(async (req, res) => {
     entry,
   });
 });
+
+// Dashboard status stats (Verified vs Created) for current week/month/year
+exports.statusStats = TryCatch(async (req, res) => {
+  const { period = "weekly" } = req.query;
+
+  const now = new Date();
+  const startOfWeek = () => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday
+    d.setDate(d.getDate() + diff);
+    return d;
+  };
+  const endOfWeek = () => {
+    const s = startOfWeek();
+    const e = new Date(s);
+    e.setDate(s.getDate() + 7);
+    return e;
+  };
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const endOfYear = new Date(now.getFullYear() + 1, 0, 1);
+
+  let range;
+  if (period === "weekly") range = { $gte: startOfWeek(), $lt: endOfWeek() };
+  else if (period === "monthly") range = { $gte: startOfMonth, $lt: endOfMonth };
+  else if (period === "yearly") range = { $gte: startOfYear, $lt: endOfYear };
+  else return res.status(400).json({ status: 400, success: false, message: "Invalid period" });
+
+  const grouped = await GateMan.aggregate([
+    { $match: { createdAt: range } },
+    { $group: { _id: "$status", count: { $sum: 1 } } },
+  ]);
+
+  const map = Object.fromEntries(grouped.map((g) => [g._id || "Unknown", g.count]));
+  const created = (map["Entry Created"] || 0) + (map["Created"] || 0);
+  const verified = map["Verified"] || 0;
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    period,
+    data: { created, verified },
+  });
+});

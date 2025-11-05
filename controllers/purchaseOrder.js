@@ -36,9 +36,9 @@ exports.create = TryCatch(async (req, res) => {
     finalProducts.push({
       item_name: productData.name, // fetched product name
       category: productData.category, // fetched product category
-      est_quantity: item.est_quantity,
+      quantity: item.quantity,
       produce_quantity: item.produce_quantity || 0,
-      remain_quantity: item.remain_quantity || item.est_quantity,
+      remain_quantity: item.remain_quantity || item.quantity,
       uom:item.uom ,
       product_type: item.product_type
     });
