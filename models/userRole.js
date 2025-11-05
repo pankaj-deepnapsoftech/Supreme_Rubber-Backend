@@ -22,7 +22,7 @@ const userRoleSchema = new Schema(
           "user role",
           "employee",
           "inventory",
-          "quality chek",
+          "quality check",
           "production",
           "bom",
           "gateman",

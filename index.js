@@ -29,6 +29,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://supremerubber.itsybizz.com",
   
+  "http://localhost:5174",
 ];
 
 const corsOptions = {

@@ -27,13 +27,41 @@ exports.create = TryCatch(async (req, res) => {
 
 // READ - Get all suppliers
 exports.all = TryCatch(async (req, res) => {
-  const suppliers = await Supplier.find().sort({ createdAt: -1 });
+ 
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  
+  const skip = (page - 1) * limit;
+
+
+  const totalSuppliers = await Supplier.countDocuments();
+
+ 
+  const suppliers = await Supplier.find()
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  
+  const totalPages = Math.ceil(totalSuppliers / limit);
+  const hasNextPage = page < totalPages;
+
   res.status(200).json({
     status: 200,
     success: true,
+    pagination: {
+      total: totalSuppliers,
+      page,
+      limit,
+      totalPages,
+      hasNextPage,
+      hasPrevPage: page > 1,
+    },
     suppliers,
   });
 });
+
 
 // READ - Get one supplier by ID
 exports.details = TryCatch(async (req, res) => {

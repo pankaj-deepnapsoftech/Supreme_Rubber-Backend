@@ -357,13 +357,34 @@ exports.resendOtp = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const users = await User.find({}).populate("role");
+  
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const totalUsers = await User.countDocuments();
+
+
+  const users = await User.find({})
+    .populate("role")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  
+  const hasNextPage = skip + users.length < totalUsers;
+
   res.status(200).json({
     status: 200,
     success: true,
+    page,
+    limit,
+    totalUsers,
+    hasNextPage,
     users,
   });
 });
+
 
 
 
