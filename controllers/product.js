@@ -1203,3 +1203,72 @@ exports.all = TryCatch(async (req, res) => {
 //     shortagesBefore: shortagesBefore.length,
 //   });
 // });
+
+// Inventory stats for dashboard (current week/month/year only)
+exports.inventoryStats = TryCatch(async (req, res) => {
+  const { period = "weekly" } = req.query;
+
+  const now = new Date();
+  const matchBase = { approved: true };
+
+  const startOfWeek = () => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay(); // 0=Sun
+    const diff = day === 0 ? -6 : 1 - day; // Monday start
+    d.setDate(d.getDate() + diff);
+    return d;
+  };
+  const endOfWeek = () => {
+    const s = startOfWeek();
+    const e = new Date(s);
+    e.setDate(s.getDate() + 7);
+    return e;
+  };
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const endOfYear = new Date(now.getFullYear() + 1, 0, 1);
+
+  let range;
+  if (period === "weekly") {
+    range = { $gte: startOfWeek(), $lt: endOfWeek() };
+  } else if (period === "monthly") {
+    range = { $gte: startOfMonth, $lt: endOfMonth };
+  } else if (period === "yearly") {
+    range = { $gte: startOfYear, $lt: endOfYear };
+  } else {
+    return res.status(400).json({
+      status: 400,
+      success: false,
+      message: "Invalid period. Use weekly, monthly, or yearly",
+    });
+  }
+
+  const pipeline = [
+    { $match: { ...matchBase, createdAt: range } },
+    {
+      $group: {
+        _id: { category: { $ifNull: ["$category", "Uncategorized"] } },
+        count: { $sum: 1 },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        category: "$_id.category",
+        count: 1,
+      },
+    },
+    { $sort: { category: 1 } },
+  ];
+
+  const byCategory = await Product.aggregate(pipeline);
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    period,
+    data: { byCategory },
+  });
+});
