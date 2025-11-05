@@ -3,6 +3,8 @@ const { TryCatch, ErrorHandler } = require("../utils/error");
 
 exports.create = TryCatch(async (req, res) => {
   const role = req.body;
+
+  console.log(role)
   if (!role) {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
