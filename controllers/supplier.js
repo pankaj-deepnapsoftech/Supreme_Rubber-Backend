@@ -96,8 +96,8 @@ exports.update = TryCatch(async (req, res) => {
 
 // DELETE Supplier
 exports.remove = TryCatch(async (req, res) => {
-  const { _id } = req.body;
-  const supplier = await Supplier.findByIdAndDelete(_id);
+  const { id } = req.body;
+  const supplier = await Supplier.findByIdAndDelete(id);
   if (!supplier) throw new ErrorHandler("Supplier not found", 404);
 
   res.status(200).json({

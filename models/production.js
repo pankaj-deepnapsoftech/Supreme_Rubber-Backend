@@ -76,6 +76,19 @@ const productionSchema = new Schema(
       enum: ["pending", "in_progress", "completed"],
       default: "pending",
     },
+    qc_status: {
+      type: String,
+      enum: ["approved", "rejected", null],
+      default: null,
+    },
+    qc_done: {
+      type: Boolean,
+      default: false,
+    },
+    ready_for_qc: {
+      type: Boolean,
+      default: false,
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
