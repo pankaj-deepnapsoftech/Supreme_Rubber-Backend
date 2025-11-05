@@ -428,3 +428,156 @@ exports.getProductionGraphData = TryCatch(async (req, res) => {
     },
   });
 });
+
+// Production status stats over a period (pending, in_progress, completed)
+exports.statusStats = TryCatch(async (req, res) => {
+  const { period = "weekly", year = new Date().getFullYear() } = req.query;
+
+  const now = new Date();
+  let periodStart;
+  let periodEnd;
+
+  switch ((period || "").toString().toLowerCase()) {
+    case "weekly": {
+      periodStart = new Date(now);
+      periodStart.setDate(now.getDate() - 6);
+      periodStart.setHours(0, 0, 0, 0);
+      periodEnd = new Date(now);
+      periodEnd.setHours(23, 59, 59, 999);
+      break;
+    }
+    case "monthly": {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      periodEnd.setHours(23, 59, 59, 999);
+      break;
+    }
+    case "yearly": {
+      const y = Number(year) || now.getFullYear();
+      periodStart = new Date(y, 0, 1);
+      periodEnd = new Date(y, 11, 31, 23, 59, 59, 999);
+      break;
+    }
+    default:
+      throw new ErrorHandler("Invalid period. Use 'weekly', 'monthly', or 'yearly'", 400);
+  }
+
+  const grouped = await Production.aggregate([
+    { $match: { createdAt: { $gte: periodStart, $lte: periodEnd } } },
+    { $group: { _id: "$status", count: { $sum: 1 } } },
+  ]);
+
+  const map = Object.fromEntries(grouped.map((g) => [g._id || "pending", g.count]));
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production status stats retrieved successfully",
+    data: {
+      pending: map["pending"] || 0,
+      in_progress: map["in_progress"] || 0,
+      completed: map["completed"] || 0,
+    },
+  });
+});
+
+// QC stats over a period (approved vs rejected)
+exports.qcStats = TryCatch(async (req, res) => {
+  const { period = "weekly", year = new Date().getFullYear() } = req.query;
+
+  const now = new Date();
+  let periodStart;
+  let periodEnd;
+
+  switch ((period || "").toString().toLowerCase()) {
+    case "weekly": {
+      periodStart = new Date(now);
+      periodStart.setDate(now.getDate() - 6);
+      periodStart.setHours(0, 0, 0, 0);
+      periodEnd = new Date(now);
+      periodEnd.setHours(23, 59, 59, 999);
+      break;
+    }
+    case "monthly": {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      periodEnd.setHours(23, 59, 59, 999);
+      break;
+    }
+    case "yearly": {
+      const y = Number(year) || now.getFullYear();
+      periodStart = new Date(y, 0, 1);
+      periodEnd = new Date(y, 11, 31, 23, 59, 59, 999);
+      break;
+    }
+    default:
+      throw new ErrorHandler("Invalid period. Use 'weekly', 'monthly', or 'yearly'", 400);
+  }
+
+  const grouped = await Production.aggregate([
+    { $match: { createdAt: { $gte: periodStart, $lte: periodEnd } } },
+    { $group: { _id: "$qc_status", count: { $sum: 1 } } },
+  ]);
+
+  const map = Object.fromEntries(grouped.map((g) => [g._id || "unknown", g.count]));
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production QC stats retrieved successfully",
+    data: {
+      approved: map["approved"] || 0,
+      rejected: map["rejected"] || 0,
+    },
+  });
+});
+
+// Mark a production as approved by QC
+exports.approve = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { qc_status: "approved", qc_done: true },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production approved",
+    production: updated,
+  });
+});
+
+// Mark a production as rejected by QC
+exports.reject = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body || {};
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { qc_status: "rejected", qc_done: true, qc_reject_reason: reason },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production rejected",
+    production: updated,
+  });
+});
+
+// Mark a production as ready for QC
+exports.markReadyForQC = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { ready_for_qc: true },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production marked ready for QC",
+    production: updated,
+  });
+});
