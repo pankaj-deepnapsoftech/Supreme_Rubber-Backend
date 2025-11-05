@@ -6,6 +6,11 @@ const {
   update,
   remove,
   getProductionGraphData,
+  statusStats,
+  qcStats,
+  approve,
+  reject,
+  markReadyForQC,
 } = require("../controllers/production");
 const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isAllowed } = require("../middlewares/isAllowed");
