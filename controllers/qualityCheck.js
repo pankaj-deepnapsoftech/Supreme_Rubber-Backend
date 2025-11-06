@@ -222,7 +222,7 @@ const createQualityCheck = async (req, res) => {
       }
 
     }
-
+  
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
     )
