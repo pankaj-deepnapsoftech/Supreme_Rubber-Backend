@@ -54,16 +54,32 @@ exports.create = TryCatch(async (req, res) => {
 });
 
 
-
-// GET ALL ENTRIES
+// GET ALL ENTRIES (with pagination)
 exports.all = TryCatch(async (req, res) => {
-  const entries = await GateMan.find().sort({ createdAt: -1 });
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit);
+  const skip = (page - 1) * limit;
+
+  // Get total count
+  const total = await GateMan.countDocuments();
+
+  // Fetch paginated data
+  const entries = await GateMan.find()
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
   res.status(200).json({
     status: 200,
     success: true,
     entries,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit), 
   });
 });
+
 
 // GET BY ID
 exports.details = TryCatch(async (req, res) => {

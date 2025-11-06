@@ -50,7 +50,7 @@ exports.update = TryCatch(async (req, res) => {
     throw new ErrorHandler("Please provide product details", 400);
   }
 
-  const { _id } = productDetails;  
+  const { _id } = productDetails;
 
   let product = await Product.findById(_id);
   if (!product) {
@@ -135,6 +135,13 @@ exports.details = TryCatch(async (req, res) => {
 });
 exports.all = TryCatch(async (req, res) => {
   const { category } = req.query;
+
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+  const skip = (page - 1) * limit;
+  const total = await Product.countDocuments()
+
+
   let products;
   if (category) {
     products = await Product.find({
@@ -146,13 +153,18 @@ exports.all = TryCatch(async (req, res) => {
   } else {
     products = await Product.find({ approved: true })
       .sort({ updatedAt: -1 })
-      .populate("store");
+      .populate("store")
+      .skip(skip)
+      .limit(limit)
   }
 
   res.status(200).json({
     status: 200,
     success: true,
     products,
+    page,
+    limit,
+    total
   });
 });
 // exports.unapproved = TryCatch(async (req, res) => {

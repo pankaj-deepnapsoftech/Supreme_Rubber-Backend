@@ -3,7 +3,7 @@ const { Schema, model } = require("mongoose");
 const productItemSchema = new Schema(
   {
     item_name: { type: String, required: true }, // product name fetched from Product
-    est_quantity: { type: Number, required: true },
+    quantity: { type: Number, required: true },
     produce_quantity: { type: Number, default: 0 },
     remain_quantity: { type: Number, default: 0 },
     category: { type: String },
