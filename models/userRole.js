@@ -27,7 +27,8 @@ const userRoleSchema = new Schema(
           "bom",
           "gateman",
           "supplier",
-          "purchase order"
+          "purchase order",
+          "production start"
         ],
         message:
           "Permissions should be one of the following: product, store, approval, agent, bom",

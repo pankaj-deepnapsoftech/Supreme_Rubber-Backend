@@ -45,6 +45,11 @@ const productSchema = new Schema(
       type: Number,
       default: null,
     },
+    last_change: {
+      type: Object,
+      default: null, // store details of last update from production
+    },
+
     reject_stock:{
     type:Number,
     default:null

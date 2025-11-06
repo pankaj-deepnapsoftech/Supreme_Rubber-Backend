@@ -1,6 +1,8 @@
 const Production = require("../models/production");
 const BOM = require("../models/bom");
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const Product = require("../models/product");
+const { default: mongoose } = require("mongoose");
 
 exports.create = TryCatch(async (req, res) => {
   const data = req.body;
@@ -520,19 +522,102 @@ exports.qcStats = TryCatch(async (req, res) => {
 // Mark a production as approved by QC
 exports.approve = TryCatch(async (req, res) => {
   const { id } = req.params;
-  const updated = await Production.findByIdAndUpdate(
+
+  // Find production record
+  const production = await Production.findById(id);
+
+  if (!production) {
+    return res.status(404).json({ success: false, message: "Production not found" });
+  }
+
+  // === Update QC Status ===
+  const updatedProduction = await Production.findByIdAndUpdate(
     id,
     { qc_status: "approved", qc_done: true },
     { new: true }
   );
-  if (!updated) throw new ErrorHandler("Production not found", 404);
-  return res.status(200).json({
-    status: 200,
-    success: true,
-    message: "Production approved",
-    production: updated,
-  });
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+   
+    for (const fg of production.finished_goods) {
+      const product = await Product.findOne({ product_id: fg.compound_code }).session(session);
+
+      if (product) {
+        const newStock = product.current_stock + fg.prod_qty;
+
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "increase",
+            quantity_changed: fg.prod_qty,
+            last_change: {
+              production_id: production.production_id,
+              changed_on: new Date(),
+              change_type: "increase",
+              qty: fg.prod_qty,
+              reason: `Production approval for ${fg.compound_name}`,
+            },
+          },
+          { new: true, session }
+        );
+      }
+    }
+
+    // console.log("hey", production)
+ 
+    for (const rm of production.raw_materials) {
+      const rawMaterialId =
+        typeof rm.raw_material_id === "object"
+          ? rm.raw_material_id
+          : rm.raw_material_id;
+          const usedQty = rm.used_qty || rm.est_qty || 0;
+          const product = await Product.findById(rawMaterialId ).session(session);
+      console.log("product", product )
+
+      if (product) {
+        const newStock = Math.max(product.current_stock - usedQty, 0);
+
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "decrease",
+            quantity_changed: usedQty,
+            last_change: {
+              production_id: production.production_id,
+              changed_on: new Date(),
+              change_type: "decrease",
+              qty: usedQty,
+              reason: `Used in production of ${production.finished_goods[0].compound_name}`,
+            },
+          },
+          { new: true, session }
+        );
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      success: true,
+      message: "Production approved and inventory updated",
+      production: updatedProduction,
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    throw err;
+  }
 });
+
+
 
 // Mark a production as rejected by QC
 exports.reject = TryCatch(async (req, res) => {
