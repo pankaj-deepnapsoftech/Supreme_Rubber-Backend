@@ -108,7 +108,7 @@ const createQualityCheck = async (req, res) => {
   try {
     const validationResult = createQualityCheckSchema.safeParse(req.body);
 
-    console.log("ssdfsdf", validationResult);
+    
 
     if (!validationResult.success) {
       return res.status(400).json({
@@ -190,35 +190,39 @@ const createQualityCheck = async (req, res) => {
     const savedQualityCheck = await qualityCheck.save();
 
     if (approved_quantity > 0) {
+      // Always try to update inventory for both approved and rejected quantities
       try {
         const inventoryProduct = await Product.findOne({
           name: gatemanItem.item_name,
         });
 
         if (inventoryProduct) {
+          // Compute new stock values
           const newStock = inventoryProduct.current_stock + approved_quantity;
+          const newRejectStock = inventoryProduct.reject_stock + rejected_quantity;
 
+          // Update product document
           await Product.findByIdAndUpdate(inventoryProduct._id, {
             current_stock: newStock,
             updated_stock: newStock,
-            change_type: "increase",
+            reject_stock: newRejectStock,
+            change_type: approved_quantity > 0 ? "increase" : "no_change",
             quantity_changed: approved_quantity,
           });
 
           console.log(
-            `Inventory updated: ${gatemanItem.item_name} - Added ${approved_quantity} units. New stock: ${newStock}`
+            `Inventory updated: ${gatemanItem.item_name} - Approved: +${approved_quantity}, Rejected: +${rejected_quantity}, New stock: ${newStock}, Reject stock: ${newRejectStock}`
           );
         } else {
-          console.log(
-            `Product not found in inventory: ${gatemanItem.item_name}`
-          );
+          console.log(`Product not found in inventory: ${gatemanItem.item_name}`);
         }
       } catch (inventoryError) {
         console.error("Error updating inventory:", inventoryError);
         // Continue execution even if inventory update fails
       }
-    }
 
+    }
+  
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
     )

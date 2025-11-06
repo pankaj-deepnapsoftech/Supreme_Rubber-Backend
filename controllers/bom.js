@@ -7,15 +7,11 @@ exports.create = TryCatch(async (req, res) => {
 
   if (!data) throw new ErrorHandler("Please provide BOM data", 400);
 
-  const firstCompoundRow = Array.isArray(data.compoundingStandards) && data.compoundingStandards.length
-    ? data.compoundingStandards[0]
-    : null;
-  const safeCompoundCode = data.compoundCode || firstCompoundRow?.compoundCode || undefined;
-  const safeCompoundName = data.compoundName || firstCompoundRow?.compoundName || undefined;
-  const safePartName = data.partName || firstCompoundRow?.partName || undefined;
-
-  // Build bom_id prefix from compound name (first 3 letters) and increment
-  const prefixBase = (safeCompoundName || "BOM").replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 3) || "BOM";
+  // Build bom_id prefix from first compound code or default
+  const firstCompoundCode = Array.isArray(data.compound_codes) && data.compound_codes.length > 0
+    ? data.compound_codes[0]
+    : "BOM";
+  const prefixBase = (firstCompoundCode || "BOM").replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 3) || "BOM";
   const prefix = `${prefixBase}-`;
   const lastWithPrefix = await BOM.find({ bom_id: { $regex: `^${prefix}\\d{3}$` } })
     .sort({ bom_id: -1 })
@@ -25,78 +21,62 @@ exports.create = TryCatch(async (req, res) => {
     : 1;
   const bomId = `${prefix}${String(nextNum).padStart(3, "0")}`;
 
-  // Prepare product snapshots for compounding standards and raw materials
-  const compoundIds = (Array.isArray(data.compoundingStandards) ? data.compoundingStandards : [])
-    .map((r) => r.compoundId || r.compound)
-    .filter(Boolean);
-  const rawIds = (Array.isArray(data.rawMaterials) ? data.rawMaterials : [])
-    .map((r) => r.rawMaterialId || r.raw_material)
-    .filter(Boolean);
-  const allIds = [...new Set([...(compoundIds || []), ...(rawIds || [])])];
+  // Collect Product ids for raw materials and finished goods to create snapshots
+  const rawMaterialIds = Array.isArray(data.raw_materials)
+    ? data.raw_materials.map((r) => r.raw_material_id).filter(Boolean)
+    : [];
+  const finishedGoodIds = Array.isArray(data.finished_goods)
+    ? data.finished_goods
+        .map((fg) => fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null))
+        .filter(Boolean)
+    : [];
+  const allProductIds = [...new Set([...
+    (rawMaterialIds || []), ...(finishedGoodIds || [])
+  ])];
   const idToProduct = new Map();
-  if (allIds.length) {
-    const docs = await Product.find({ _id: { $in: allIds } });
+  if (allProductIds.length) {
+    const docs = await Product.find({ _id: { $in: allProductIds } });
     docs.forEach((d) => idToProduct.set(String(d._id), d.toObject()));
   }
 
+  // Process raw materials with names and snapshot from Product model
+  const processedRawMaterials = Array.isArray(data.raw_materials)
+    ? data.raw_materials.map((r) => {
+        const product = r.raw_material_id ? idToProduct.get(String(r.raw_material_id)) : null;
+        return {
+          raw_material_id: r.raw_material_id,
+          raw_material_name: r.raw_material_name || product?.name || "",
+          tolerances: Array.isArray(r.tolerances) ? r.tolerances : [],
+          quantities: Array.isArray(r.quantities) ? r.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+          comments: Array.isArray(r.comments) ? r.comments : [],
+          product_snapshot: product || undefined,
+        };
+      })
+    : [];
+
   const bom = await BOM.create({
     bom_id: bomId,
-    compound: data.compoundId || firstCompoundRow?.compoundId || firstCompoundRow?.compound || undefined,
-    compound_name: safeCompoundName,
-    compound_code: safeCompoundCode,
-    hardness: data.compoundingStandardHardness,
-    part_name: safePartName,
-
-    raw_material: data.rawMaterialId || undefined,
-    raw_material_name: data.rawMaterialName,
-    raw_material_code: data.rawMaterialCode,
-    raw_material_uom: data.rawMaterialUom,
-    raw_material_category: data.rawMaterialCategory,
-    raw_material_current_stock: data.rawMaterialCurrentStock,
-    raw_material_weight: data.rawMaterialWeight,
-    raw_material_tolerance: data.rawMaterialTolerance,
-
-    process1: data.process1,
-    process2: data.process2,
-    process3: data.process3,
-    process4: data.process4,
+    compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
+    compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
+    part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
+    hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
+    finished_goods: Array.isArray(data.finished_goods)
+      ? data.finished_goods.map((fg) => {
+          const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
+          const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
+          return {
+            finished_good_id_name: fg.finished_good_id_name || "",
+            tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
+            quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+            comments: Array.isArray(fg.comments) ? fg.comments : [],
+            product_snapshot: snap,
+          };
+        })
+      : [],
+    raw_materials: processedRawMaterials,
     processes: Array.isArray(data.processes)
       ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
-      : undefined,
-
-    compoundingStandards: Array.isArray(data.compoundingStandards)
-      ? data.compoundingStandards.map((r) => {
-          const pid = r.compoundId || r.compound;
-          const snap = pid ? idToProduct.get(String(pid)) : undefined;
-          return {
-            compound: pid || undefined,
-            compound_name: r.compoundName || snap?.name || undefined,
-            compound_code: r.compoundCode || snap?.product_id || undefined,
-            hardness: r.hardness || undefined,
-            part_name: r.partName || undefined,
-            product_snapshot: snap,
-          };
-        })
-      : undefined,
-    rawMaterials: Array.isArray(data.rawMaterials)
-      ? data.rawMaterials.map((r) => {
-          const rid = r.rawMaterialId || r.raw_material;
-          const snap = rid ? idToProduct.get(String(rid)) : undefined;
-          return {
-            raw_material: rid || undefined,
-            raw_material_name: r.rawMaterialName || snap?.name || undefined,
-            raw_material_code: r.rawMaterialCode || snap?.product_id || undefined,
-            uom: r.uom || snap?.uom || undefined,
-            category: r.category || snap?.category || undefined,
-            current_stock: typeof r.current_stock !== "undefined" ? r.current_stock : snap?.current_stock,
-            weight: r.weight || r.raw_material_weight || undefined,
-            tolerance: r.tolerance || r.raw_material_tolerance || undefined,
-            code_no: r.code_no || undefined,
-            product_snapshot: snap,
-          };
-        })
-      : undefined,
-
+      : [],
     createdBy: req.user?._id,
   });
 
@@ -120,15 +100,7 @@ exports.all = TryCatch(async (req, res) => {
     .skip(skip)
     .limit(limit)
     .populate({
-      path: "rawMaterials.raw_material",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "raw_material",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "compound",
+      path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
     });
 
@@ -153,15 +125,7 @@ exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;
   const bom = await BOM.findById(id)
     .populate({
-      path: "rawMaterials.raw_material",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "raw_material",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "compound",
+      path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
     });
   if (!bom) throw new ErrorHandler("BOM not found", 404);
@@ -172,56 +136,62 @@ exports.update = TryCatch(async (req, res) => {
   const data = req.body;
   const { _id } = data;
   if (!_id) throw new ErrorHandler("Please provide BOM id (_id)", 400);
-  const firstCompoundRow = Array.isArray(data.compoundingStandards) && data.compoundingStandards.length
-    ? data.compoundingStandards[0]
-    : null;
-  const safeCompoundCode = data.compoundCode || firstCompoundRow?.compoundCode || undefined;
-  const safeCompoundName = data.compoundName || firstCompoundRow?.compoundName || undefined;
-  const safePartName = data.partName || firstCompoundRow?.partName || undefined;
+
+  // Collect Product ids for raw materials and finished goods to create snapshots
+  const rawMaterialIds = Array.isArray(data.raw_materials)
+    ? data.raw_materials.map((r) => r.raw_material_id).filter(Boolean)
+    : [];
+  const finishedGoodIds = Array.isArray(data.finished_goods)
+    ? data.finished_goods
+        .map((fg) => fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null))
+        .filter(Boolean)
+    : [];
+  const allProductIds = [...new Set([...(rawMaterialIds || []), ...(finishedGoodIds || [])])];
+  const idToProduct = new Map();
+  if (allProductIds.length) {
+    const docs = await Product.find({ _id: { $in: allProductIds } });
+    docs.forEach((d) => idToProduct.set(String(d._id), d.toObject()));
+  }
+
+  // Process raw materials with names and snapshot from Product model
+  const processedRawMaterials = Array.isArray(data.raw_materials)
+    ? data.raw_materials.map((r) => {
+        const product = r.raw_material_id ? idToProduct.get(String(r.raw_material_id)) : null;
+        return {
+          raw_material_id: r.raw_material_id,
+          raw_material_name: r.raw_material_name || product?.name || "",
+          tolerances: Array.isArray(r.tolerances) ? r.tolerances : [],
+          quantities: Array.isArray(r.quantities) ? r.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+          comments: Array.isArray(r.comments) ? r.comments : [],
+          product_snapshot: product || undefined,
+        };
+      })
+    : [];
+
   const bom = await BOM.findByIdAndUpdate(
     _id,
     {
-      compound: data.compoundId || firstCompoundRow?.compoundId || firstCompoundRow?.compound || undefined,
-      compound_name: safeCompoundName,
-      compound_code: safeCompoundCode,
-      hardness: data.compoundingStandardHardness,
-      part_name: safePartName,
-      raw_material: data.rawMaterialId || undefined,
-      raw_material_name: data.rawMaterialName,
-      raw_material_code: data.rawMaterialCode,
-      raw_material_uom: data.rawMaterialUom,
-      raw_material_category: data.rawMaterialCategory,
-      raw_material_current_stock: data.rawMaterialCurrentStock,
-      raw_material_weight: data.rawMaterialWeight,
-      raw_material_tolerance: data.rawMaterialTolerance,
-      process1: data.process1,
-      process2: data.process2,
-      process3: data.process3,
-      process4: data.process4,
+      compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
+      compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
+      part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
+      hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
+      finished_goods: Array.isArray(data.finished_goods)
+        ? data.finished_goods.map((fg) => {
+            const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
+            const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
+            return {
+              finished_good_id_name: fg.finished_good_id_name || "",
+              tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
+              quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+              comments: Array.isArray(fg.comments) ? fg.comments : [],
+              product_snapshot: snap,
+            };
+          })
+        : [],
+      raw_materials: processedRawMaterials,
       processes: Array.isArray(data.processes)
         ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
-        : undefined,
-      compoundingStandards: Array.isArray(data.compoundingStandards)
-        ? data.compoundingStandards.map((r) => ({
-            compound: r.compoundId || r.compound || undefined,
-            compound_name: r.compoundName || undefined,
-            compound_code: r.compoundCode || undefined,
-            hardness: r.hardness || undefined,
-            part_name: r.partName || undefined,
-          }))
-        : undefined,
-      rawMaterials: Array.isArray(data.rawMaterials)
-        ? data.rawMaterials.map((r) => ({
-            raw_material: r.rawMaterialId || r.raw_material || undefined,
-            raw_material_name: r.rawMaterialName || undefined,
-            raw_material_code: r.rawMaterialCode || undefined,
-            uom: r.uom || undefined,
-            category: r.category || undefined,
-            current_stock: typeof r.current_stock !== "undefined" ? r.current_stock : undefined,
-            weight: r.weight || r.raw_material_weight || undefined,
-            tolerance: r.tolerance || r.raw_material_tolerance || undefined,
-          }))
-        : undefined,
+        : [],
     },
     { new: true }
   );
@@ -242,48 +212,22 @@ exports.lookup = TryCatch(async (req, res) => {
   const code = (req.query.code || "").trim();
   if (!code) throw new ErrorHandler("Please provide code query param", 400);
 
-  // Try finding in embedded rawMaterials by raw_material_code first
-  const bomWithRaw = await BOM.findOne({ "rawMaterials.raw_material_code": code });
-  if (bomWithRaw) {
-    const row = (bomWithRaw.rawMaterials || []).find((r) => r.raw_material_code === code);
-    if (row) {
-      return res.status(200).json({
-        status: 200,
-        success: true,
-        source: "bom.rawMaterials",
-        data: {
-          uom: row.uom || row.product_snapshot?.uom,
-          category: row.category || row.product_snapshot?.category,
-          name: row.raw_material_name || row.product_snapshot?.name,
-          product_id: row.raw_material_code,
-          current_stock: row.current_stock ?? row.product_snapshot?.current_stock,
-        },
-      });
-    }
-  }
-
-  // Try finding in compoundingStandards/compound_code or top-level compound_code
-  const bomWithCompound = await BOM.findOne({
-    $or: [
-      { compound_code: code },
-      { "compoundingStandards.compound_code": code },
-    ],
-  });
+  // Try finding in compound_codes array
+  const bomWithCompound = await BOM.findOne({ compound_codes: code });
   if (bomWithCompound) {
-    // We don't store uom/category for compound at top-level; try to resolve via snapshots if present
-    const row = (bomWithCompound.compoundingStandards || []).find((r) => r.compound_code === code);
-    const fromSnap = row?.product_snapshot || null;
-    if (fromSnap) {
+    // Try to find product by code
+    const product = await Product.findOne({ product_id: code }).select("uom category name product_id current_stock");
+    if (product) {
       return res.status(200).json({
         status: 200,
         success: true,
-        source: "bom.compoundingStandards",
+        source: "bom.compound_codes",
         data: {
-          uom: fromSnap.uom,
-          category: fromSnap.category,
-          name: row.compound_name || fromSnap.name,
-          product_id: row.compound_code,
-          current_stock: fromSnap.current_stock,
+          uom: product.uom,
+          category: product.category,
+          name: product.name,
+          product_id: product.product_id,
+          current_stock: product.current_stock,
         },
       });
     }

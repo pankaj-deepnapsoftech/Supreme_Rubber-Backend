@@ -2,11 +2,11 @@ const { Schema, model } = require("mongoose");
 
 const productSchema = new Schema(
   {
-    inventory_category: {
-      type: String,
-      enum: ["Direct", "indirect"],
-      required: [true, "Category is a required field"],
-    },
+    // inventory_category: {
+    //   type: String,
+    //   enum: ["Direct", "indirect"],
+    //   required: [true, "Category is a required field"],
+    // },
     name: {
       type: String,
       required: [true, "Product Name is a required field"],
@@ -45,6 +45,10 @@ const productSchema = new Schema(
       type: Number,
       default: null,
     },
+    reject_stock:{
+    type:Number,
+    default:null
+    },
     change_type: { type: String, enum: ["increase", "decrease"] },
     quantity_changed: { type: Number },
     price: {
@@ -73,11 +77,11 @@ const productSchema = new Schema(
       enum: ["Buy", "Sell", "both"],
       required: [true, "Item type is a required field"],
     },
-    product_or_service: {
-      type: String,
-      enum: ["Product", "Service"],
-      required: [true, "Product/Service is a required field"],
-    },
+    // product_or_service: {
+    //   type: String,
+    //   enum: ["Product", "Service"],
+    //   required: [true, "Product/Service is a required field"],
+    // },
     sub_category: {
       type: String,
     },

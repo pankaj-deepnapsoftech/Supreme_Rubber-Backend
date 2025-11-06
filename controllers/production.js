@@ -10,15 +10,7 @@ exports.create = TryCatch(async (req, res) => {
 
   const bom = await BOM.findById(data.bom)
     .populate({
-      path: "rawMaterials.raw_material",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "compound",
-      select: "uom category current_stock name product_id",
-    })
-    .populate({
-      path: "compoundingStandards.compound",
+      path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
     });
 
@@ -26,64 +18,36 @@ exports.create = TryCatch(async (req, res) => {
 
   const finishedGoods = Array.isArray(data.finished_goods)
     ? data.finished_goods.map((fg) => {
-        const compound =
-          bom.compoundingStandards?.find(
-            (cs) => cs.compound_code === fg.compound_code
-          ) ||
-          bom.compoundingStandards?.[0] ||
-          bom;
-
+        const firstCode = Array.isArray(bom.compound_codes) ? bom.compound_codes[0] : undefined;
         return {
           bom: data.bom,
-          compound_code:
-            fg.compound_code || compound.compound_code || bom.compound_code,
-          compound_name:
-            fg.compound_name || compound.compound_name || bom.compound_name,
+          compound_code: fg.compound_code || firstCode || "",
+          compound_name: fg.compound_name || bom.compound_name || "",
           est_qty: fg.est_qty || 0,
-          uom:
-            fg.uom || compound.product_snapshot?.uom || bom.compound?.uom || "",
+          uom: fg.uom || "",
           prod_qty: fg.prod_qty || 0,
           remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
-          category:
-            fg.category ||
-            compound.product_snapshot?.category ||
-            bom.compound?.category ||
-            "",
+          category: fg.category || "",
           total_cost: fg.total_cost || 0,
         };
       })
     : [];
 
   const rawMaterials = Array.isArray(data.raw_materials)
-    ? data.raw_materials.map((rm) => {
-        const bomRm = bom.rawMaterials?.find(
-          (r) =>
-            r.raw_material_code === rm.raw_material_code ||
-            r.raw_material_name === rm.raw_material_name
-        );
-
-        return {
-          raw_material_id: rm.raw_material_id || bomRm?.raw_material || null,
-          raw_material_name:
-            rm.raw_material_name || bomRm?.raw_material_name || "",
-          raw_material_code:
-            rm.raw_material_code || bomRm?.raw_material_code || "",
-          est_qty: rm.est_qty || bomRm?.current_stock || 0,
-          uom: rm.uom || bomRm?.uom || bomRm?.product_snapshot?.uom || "",
-          used_qty: rm.used_qty || 0,
-          remain_qty:
-            (rm.est_qty || bomRm?.current_stock || 0) - (rm.used_qty || 0),
-          category:
-            rm.category ||
-            bomRm?.category ||
-            bomRm?.product_snapshot?.category ||
-            "",
-          total_cost: rm.total_cost || 0,
-          weight: rm.weight || bomRm?.weight || "",
-          tolerance: rm.tolerance || bomRm?.tolerance || "",
-          code_no: rm.code_no || bomRm?.code_no || "",
-        };
-      })
+    ? data.raw_materials.map((rm) => ({
+        raw_material_id: rm.raw_material_id || null,
+        raw_material_name: rm.raw_material_name || "",
+        raw_material_code: rm.raw_material_code || "",
+        est_qty: rm.est_qty || 0,
+        uom: rm.uom || "",
+        used_qty: rm.used_qty || 0,
+        remain_qty: (rm.est_qty || 0) - (rm.used_qty || 0),
+        category: rm.category || "",
+        total_cost: rm.total_cost || 0,
+        weight: rm.weight || "",
+        tolerance: rm.tolerance || "",
+        code_no: rm.code_no || "",
+      }))
     : [];
 
   const processes = Array.isArray(data.processes)

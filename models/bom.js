@@ -7,63 +7,50 @@ const bomSchema = new Schema(
       unique: true,
       index: true,
     },
-    compound: {
-      type: Schema.Types.ObjectId,
-      ref: "Product",
-    },
-    compound_name: String,
-    compound_code: String,
-    hardness: String,
-    part_name: String,
+    
+    // Arrays for compound codes, part names, and hardness
+    compound_codes: [String],    // Single compound name (requested)
+    compound_name: { type: String },
+    part_names: [String],
+    hardnesses: [String],
 
-    raw_material: {
-      type: Schema.Types.ObjectId,
-      ref: "Product",
-    },
-    raw_material_name: String,
-    raw_material_code: String,
-    raw_material_uom: String,
-    raw_material_category: String,
-    raw_material_current_stock: Number,
-    raw_material_weight: String,
-    raw_material_tolerance: String,
-
-    process1: String,
-    process2: String,
-    process3: String,
-    process4: String,
-    processes: [String],
-
-    compoundingStandards: [
+    // Finished Goods array with tolerance, quantity, and comment arrays
+    finished_goods: [
       new Schema(
         {
-          compound: { type: Schema.Types.ObjectId, ref: "Product" },
-          compound_name: String,
-          compound_code: String,
-          hardness: String,
-          part_name: String,
+          finished_good_id_name: {
+            type: String,
+            required: true,
+          },
+          tolerances: [String],
+          quantities: [Number],
+          comments: [String],
           product_snapshot: { type: Schema.Types.Mixed },
         },
         { _id: false }
       ),
     ],
-    rawMaterials: [
+
+    // Raw Materials array with tolerance, quantity, and comment arrays
+    raw_materials: [
       new Schema(
         {
-          raw_material: { type: Schema.Types.ObjectId, ref: "Product" },
+          raw_material_id: {
+            type: Schema.Types.ObjectId,
+            ref: "Product",
+            required: true,
+          },
           raw_material_name: String,
-          raw_material_code: String,
-          uom: String,
-          category: String,
-          current_stock: Number,
-          weight: String,
-          tolerance: String,
-          code_no: String,
+          tolerances: [String],
+          quantities: [Number],
+          comments: [String],
           product_snapshot: { type: Schema.Types.Mixed },
         },
         { _id: false }
       ),
     ],
+
+    processes: [String],
 
     createdBy: {
       type: Schema.Types.ObjectId,
