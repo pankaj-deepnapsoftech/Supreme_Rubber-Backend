@@ -19,17 +19,23 @@ exports.create = TryCatch(async (req, res) => {
   if (!bom) throw new ErrorHandler("BOM not found", 404);
 
   const finishedGoods = Array.isArray(data.finished_goods)
-    ? data.finished_goods.map((fg) => {
+    ? data.finished_goods.map((fg, idx) => {
         const firstCode = Array.isArray(bom.compound_codes) ? bom.compound_codes[0] : undefined;
+        const bomFg = Array.isArray(bom.finished_goods) && bom.finished_goods.length > 0
+          ? (bom.finished_goods[idx] || bom.finished_goods[0])
+          : null;
+        const snap = bomFg?.product_snapshot || {};
         return {
           bom: data.bom,
           compound_code: fg.compound_code || firstCode || "",
           compound_name: fg.compound_name || bom.compound_name || "",
+          product_id: snap.product_id || undefined,
+          product_name: snap.name || undefined,
           est_qty: fg.est_qty || 0,
-          uom: fg.uom || "",
+          uom: fg.uom || snap.uom || "",
           prod_qty: fg.prod_qty || 0,
           remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
-          category: fg.category || "",
+          category: fg.category || snap.category || "",
           total_cost: fg.total_cost || 0,
         };
       })
@@ -543,29 +549,37 @@ exports.approve = TryCatch(async (req, res) => {
   try {
    
     for (const fg of production.finished_goods) {
-      const product = await Product.findOne({ product_id: fg.compound_code }).session(session);
-
-      if (product) {
-        const newStock = product.current_stock + fg.prod_qty;
-
-        await Product.findByIdAndUpdate(
-          product._id,
-          {
-            current_stock: newStock,
-            updated_stock: newStock,
-            change_type: "increase",
-            quantity_changed: fg.prod_qty,
-            last_change: {
-              production_id: production.production_id,
-              changed_on: new Date(),
-              change_type: "increase",
-              qty: fg.prod_qty,
-              reason: `Production approval for ${fg.compound_name}`,
-            },
-          },
-          { new: true, session }
-        );
+      const lookupCode = (fg.product_id || fg.compound_code || "").trim();
+      const lookupName = (fg.product_name || fg.compound_name || "").trim();
+      let product = null;
+      if (lookupCode) {
+        product = await Product.findOne({ product_id: lookupCode }).session(session);
       }
+      if (!product && lookupName) {
+        product = await Product.findOne({ name: lookupName }).session(session);
+      }
+      if (!product) {
+        continue; // skip if no matching inventory product
+      }
+      const delta = Number(fg.prod_qty) || 0;
+      const newStock = Math.max(0, (Number(product.current_stock) || 0) + delta);
+      await Product.findByIdAndUpdate(
+        product._id,
+        {
+          current_stock: newStock,
+          updated_stock: newStock,
+          change_type: "increase",
+          quantity_changed: delta,
+          last_change: {
+            production_id: production.production_id,
+            changed_on: new Date(),
+            change_type: "increase",
+            qty: delta,
+            reason: `Production approval for ${lookupName || lookupCode}`,
+          },
+        },
+        { new: true, session }
+      );
     }
 
     // console.log("hey", production)

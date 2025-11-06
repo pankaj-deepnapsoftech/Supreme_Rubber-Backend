@@ -5,6 +5,9 @@ const finishedGoodSchema = new Schema(
     bom: { type: Schema.Types.ObjectId, ref: "BOM", required: true },
     compound_code: String,
     compound_name: String,
+    // Link to inventory product (helps QC approval update correct product)
+    product_id: String, // product SKU/id from inventory
+    product_name: String, // product name snapshot
     est_qty: { type: Number, required: true },
     uom: String,
     prod_qty: { type: Number, default: 0 },
