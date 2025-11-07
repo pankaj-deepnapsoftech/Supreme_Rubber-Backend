@@ -44,6 +44,14 @@ const userRoleSchema = new Schema(
   }
 );
 
+// Pre-save hook to trim role name and validate
+userRoleSchema.pre("save", function (next) {
+  if (this.role && typeof this.role === "string") {
+    this.role = this.role.trim();
+  }
+  next();
+});
+
 userRoleSchema.set("toJSON", {
   transform: function (doc, ret) {
     for (let key in ret) {
