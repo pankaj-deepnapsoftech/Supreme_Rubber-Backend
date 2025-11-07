@@ -529,8 +529,12 @@ exports.qcStats = TryCatch(async (req, res) => {
 exports.approve = TryCatch(async (req, res) => {
   const { id } = req.params;
 
-  // Find production record
-  const production = await Production.findById(id);
+  // Find production record with BOM populated
+  const production = await Production.findById(id)
+    .populate({
+      path: "bom",
+      select: "finished_goods compound_name compound_codes",
+    });
 
   if (!production) {
     return res.status(404).json({ success: false, message: "Production not found" });
@@ -547,22 +551,117 @@ exports.approve = TryCatch(async (req, res) => {
   session.startTransaction();
 
   try {
-   
+    // Update finished goods inventory
     for (const fg of production.finished_goods) {
       const lookupCode = (fg.product_id || fg.compound_code || "").trim();
       const lookupName = (fg.product_name || fg.compound_name || "").trim();
       let product = null;
-      if (lookupCode) {
+      
+      // Try to get product reference from BOM's finished_goods
+      let bomFinishedGood = null;
+      if (production.bom && Array.isArray(production.bom.finished_goods)) {
+        bomFinishedGood = production.bom.finished_goods.find(
+          (bomFg) => 
+            (bomFg.finished_good_id_name && (
+              bomFg.finished_good_id_name.includes(fg.compound_code) ||
+              bomFg.finished_good_id_name.includes(fg.compound_name) ||
+              bomFg.finished_good_id_name.includes(lookupCode) ||
+              bomFg.finished_good_id_name.includes(lookupName)
+            )) ||
+            (bomFg.product_snapshot && (
+              bomFg.product_snapshot.product_id === lookupCode ||
+              bomFg.product_snapshot.name === lookupName
+            ))
+        );
+        
+        // If found, try to extract product ID from finished_good_id_name (format: "productId-productName")
+        if (bomFinishedGood && bomFinishedGood.finished_good_id_name) {
+          const fgIdName = bomFinishedGood.finished_good_id_name;
+          // Check if it's in "id-name" format
+          if (fgIdName.includes("-")) {
+            const possibleId = fgIdName.split("-")[0].trim();
+            // Try as ObjectId first
+            if (mongoose.Types.ObjectId.isValid(possibleId)) {
+              product = await Product.findById(possibleId).session(session);
+            }
+            // If not found, try as product_id
+            if (!product) {
+              product = await Product.findOne({ product_id: possibleId }).session(session);
+            }
+          }
+          // Also try the whole string as product_id
+          if (!product) {
+            product = await Product.findOne({ product_id: fgIdName }).session(session);
+          }
+        }
+        
+        // Also try product_snapshot from BOM
+        if (!product && bomFinishedGood && bomFinishedGood.product_snapshot) {
+          const snap = bomFinishedGood.product_snapshot;
+          if (snap.product_id) {
+            product = await Product.findOne({ product_id: snap.product_id }).session(session);
+          }
+          if (!product && snap._id && mongoose.Types.ObjectId.isValid(snap._id)) {
+            product = await Product.findById(snap._id).session(session);
+          }
+        }
+      }
+      
+      // Try multiple lookup strategies if product not found from BOM
+      if (!product && lookupCode) {
+        // Try by product_id (exact match)
         product = await Product.findOne({ product_id: lookupCode }).session(session);
+        
+        // If not found and lookupCode might be an ObjectId, try by _id
+        if (!product && mongoose.Types.ObjectId.isValid(lookupCode)) {
+          product = await Product.findById(lookupCode).session(session);
+        }
       }
+      
+      // Try by name (case-insensitive partial match)
       if (!product && lookupName) {
-        product = await Product.findOne({ name: lookupName }).session(session);
+        // Exact match first
+        product = await Product.findOne({ 
+          name: { $regex: new RegExp(`^${lookupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        }).session(session);
+        
+        // If exact match fails, try partial match
+        if (!product) {
+          product = await Product.findOne({ 
+            name: { $regex: new RegExp(lookupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+          }).session(session);
+        }
       }
+      
+      // Try by compound_code if it exists in product (some products might have compound_code field)
+      if (!product && lookupCode) {
+        product = await Product.findOne({ 
+          $or: [
+            { compound_code: lookupCode },
+            { name: { $regex: new RegExp(lookupCode, 'i') } }
+          ]
+        }).session(session);
+      }
+      
       if (!product) {
-        continue; // skip if no matching inventory product
+        const errorMsg = `Product not found for finished good - Code: ${lookupCode}, Name: ${lookupName}, Production ID: ${production.production_id}. Cannot update inventory.`;
+        console.error(errorMsg);
+        await session.abortTransaction();
+        session.endSession();
+        throw new ErrorHandler(errorMsg, 404);
       }
+      
       const delta = Number(fg.prod_qty) || 0;
-      const newStock = Math.max(0, (Number(product.current_stock) || 0) + delta);
+      if (delta <= 0) {
+        console.log(`Skipping finished good update - prod_qty is 0 or invalid for ${lookupName || lookupCode}`);
+        continue;
+      }
+      
+      const currentStock = Number(product.current_stock) || 0;
+      const newStock = currentStock + delta;
+      
+      console.log(`Updating finished good inventory - Product: ${product.name}, Current: ${currentStock}, Adding: ${delta}, New: ${newStock}`);
+      
       await Product.findByIdAndUpdate(
         product._id,
         {
@@ -580,6 +679,8 @@ exports.approve = TryCatch(async (req, res) => {
         },
         { new: true, session }
       );
+      
+      console.log(`Finished good inventory updated successfully for ${product.name}`);
     }
 
     // console.log("hey", production)
