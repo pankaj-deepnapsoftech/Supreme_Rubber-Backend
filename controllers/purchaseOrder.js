@@ -1,9 +1,74 @@
+const mongoose = require("mongoose");
+
 const PurchaseOrder = require("../models/purchaseOrder");
 const Supplier = require("../models/supplier");
 
 const Product = require("../models/product");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const { generatePoNumber } = require("../utils/generatePoNumber");
+
+const resolveProductReference = async (item) => {
+  if (!item || !item.item_name) {
+    throw new ErrorHandler("Each product must include an item reference", 400);
+  }
+
+  let productDoc = null;
+
+  // Accept either an ObjectId or a product name as the reference
+  if (mongoose.Types.ObjectId.isValid(item.item_name)) {
+    productDoc = await Product.findById(item.item_name);
+  }
+
+  if (!productDoc) {
+    productDoc = await Product.findOne({ name: item.item_name });
+  }
+
+  if (!productDoc) {
+    throw new ErrorHandler(`Invalid product reference: ${item.item_name}`, 404);
+  }
+
+  const quantity = Number(item.quantity) || 0;
+  const produceQuantity = Number(item.produce_quantity) || 0;
+  const remainQuantity =
+    Number(item.remain_quantity) || (quantity ? quantity - produceQuantity : 0);
+
+  const productType =
+    item.product_type ||
+    productDoc.product_or_service ||
+    productDoc.item_type;
+
+  if (!productType) {
+    throw new ErrorHandler(
+      `Unable to resolve product type for ${productDoc.name}. Please provide product_type`,
+      400
+    );
+  }
+
+  return {
+    item_name: productDoc.name,
+    category: productDoc.category,
+    quantity,
+    produce_quantity: produceQuantity,
+    remain_quantity: remainQuantity,
+    uom: item.uom || productDoc.uom,
+    product_type: productType,
+  };
+};
+
+const normalizeProductsPayload = async (products = []) => {
+  if (!Array.isArray(products) || products.length === 0) {
+    throw new ErrorHandler("At least one product must be added", 400);
+  }
+
+  const resolvedProducts = [];
+
+  for (const item of products) {
+    const resolved = await resolveProductReference(item);
+    resolvedProducts.push(resolved);
+  }
+
+  return resolvedProducts;
+};
 
 // CREATE PO
 exports.create = TryCatch(async (req, res) => {
@@ -24,25 +89,7 @@ exports.create = TryCatch(async (req, res) => {
   // ✅ Generate PO number
   const poNumber = await generatePoNumber();
 
-  // ✅ Fetch product details for each product
-  const finalProducts = [];
-  for (const item of products) {
-    // item.item_name is actually product _id
-    const productData = await Product.findById(item.item_name);
-    if (!productData) {
-      throw new ErrorHandler(`Invalid Product ID: ${item.item_name}`, 404);
-    }
-
-    finalProducts.push({
-      item_name: productData.name, // fetched product name
-      category: productData.category, // fetched product category
-      quantity: item.quantity,
-      produce_quantity: item.produce_quantity || 0,
-      remain_quantity: item.remain_quantity || item.quantity,
-      uom:item.uom ,
-      product_type: item.product_type
-    });
-  }
+  const finalProducts = await normalizeProductsPayload(products);
 
 
   const po = await PurchaseOrder.create({
@@ -121,7 +168,7 @@ exports.update = TryCatch(async (req, res) => {
   }
 
   if (products && Array.isArray(products)) {
-    po.products = products;
+    po.products = await normalizeProductsPayload(products);
   }
 
   if (status) {
