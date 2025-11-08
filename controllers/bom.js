@@ -62,21 +62,26 @@ exports.create = TryCatch(async (req, res) => {
     hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
     finished_goods: Array.isArray(data.finished_goods)
       ? data.finished_goods.map((fg) => {
-          const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
-          const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
-          return {
-            finished_good_id_name: fg.finished_good_id_name || "",
-            tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
-            quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
-            comments: Array.isArray(fg.comments) ? fg.comments : [],
-            product_snapshot: snap,
-          };
-        })
+        const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
+        const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
+        return {
+          finished_good_id_name: fg.finished_good_id_name || "",
+          tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
+          quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+          comments: Array.isArray(fg.comments) ? fg.comments : [],
+          product_snapshot: snap,
+        };
+      })
       : [],
     raw_materials: processedRawMaterials,
     processes: Array.isArray(data.processes)
       ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
       : [],
+
+    // 👇 Add these lines
+    quantity: Number(data.quantity) || 0,
+    comment: typeof data.comment === "string" ? data.comment.trim() : "",
+
     createdBy: req.user?._id,
   });
 
