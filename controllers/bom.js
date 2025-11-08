@@ -21,17 +21,17 @@ exports.create = TryCatch(async (req, res) => {
     : 1;
   const bomId = `${prefix}${String(nextNum).padStart(3, "0")}`;
 
-  // Collect Product ids for raw materials and finished goods to create snapshots
+  // Collect Product ids for raw materials and part name details to create snapshots
   const rawMaterialIds = Array.isArray(data.raw_materials)
     ? data.raw_materials.map((r) => r.raw_material_id).filter(Boolean)
     : [];
-  const finishedGoodIds = Array.isArray(data.finished_goods)
-    ? data.finished_goods
-        .map((fg) => fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null))
+  const partNameDetailIds = Array.isArray(data.part_name_details)
+    ? data.part_name_details
+        .map((pnd) => pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null))
         .filter(Boolean)
     : [];
   const allProductIds = [...new Set([...
-    (rawMaterialIds || []), ...(finishedGoodIds || [])
+    (rawMaterialIds || []), ...(partNameDetailIds || [])
   ])];
   const idToProduct = new Map();
   if (allProductIds.length) {
@@ -60,28 +60,31 @@ exports.create = TryCatch(async (req, res) => {
     compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
     part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
     hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
-    finished_goods: Array.isArray(data.finished_goods)
-      ? data.finished_goods.map((fg) => {
-        const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
-        const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
-        return {
-          finished_good_id_name: fg.finished_good_id_name || "",
-          tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
-          quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
-          comments: Array.isArray(fg.comments) ? fg.comments : [],
-          product_snapshot: snap,
-        };
-      })
+    part_name_details: Array.isArray(data.part_name_details)
+      ? data.part_name_details.map((pnd) => {
+          const pndId = pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null);
+          const snap = pndId ? idToProduct.get(String(pndId)) : undefined;
+          return {
+            part_name_id_name: pnd.part_name_id_name || "",
+            tolerances: Array.isArray(pnd.tolerances) ? pnd.tolerances : [],
+            quantities: Array.isArray(pnd.quantities) ? pnd.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+            comments: Array.isArray(pnd.comments) ? pnd.comments : [],
+            product_snapshot: snap,
+          };
+        })
       : [],
     raw_materials: processedRawMaterials,
     processes: Array.isArray(data.processes)
       ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
       : [],
-
-    // 👇 Add these lines
-    quantity: Number(data.quantity) || 0,
-    comment: typeof data.comment === "string" ? data.comment.trim() : "",
-
+    accelerators: Array.isArray(data.accelerators)
+      ? data.accelerators.map((acc) => ({
+          name: acc.name || "",
+          tolerance: acc.tolerance || "",
+          quantity: acc.quantity || "",
+          comment: acc.comment || "",
+        }))
+      : [],
     createdBy: req.user?._id,
   });
 
@@ -142,16 +145,16 @@ exports.update = TryCatch(async (req, res) => {
   const { _id } = data;
   if (!_id) throw new ErrorHandler("Please provide BOM id (_id)", 400);
 
-  // Collect Product ids for raw materials and finished goods to create snapshots
+  // Collect Product ids for raw materials and part name details to create snapshots
   const rawMaterialIds = Array.isArray(data.raw_materials)
     ? data.raw_materials.map((r) => r.raw_material_id).filter(Boolean)
     : [];
-  const finishedGoodIds = Array.isArray(data.finished_goods)
-    ? data.finished_goods
-        .map((fg) => fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null))
+  const partNameDetailIds = Array.isArray(data.part_name_details)
+    ? data.part_name_details
+        .map((pnd) => pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null))
         .filter(Boolean)
     : [];
-  const allProductIds = [...new Set([...(rawMaterialIds || []), ...(finishedGoodIds || [])])];
+  const allProductIds = [...new Set([...(rawMaterialIds || []), ...(partNameDetailIds || [])])];
   const idToProduct = new Map();
   if (allProductIds.length) {
     const docs = await Product.find({ _id: { $in: allProductIds } });
@@ -180,15 +183,15 @@ exports.update = TryCatch(async (req, res) => {
       compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
       part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
       hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
-      finished_goods: Array.isArray(data.finished_goods)
-        ? data.finished_goods.map((fg) => {
-            const fgId = fg.finished_good_id || (typeof fg.finished_good_id_name === "string" ? fg.finished_good_id_name.split("-")[0] : null);
-            const snap = fgId ? idToProduct.get(String(fgId)) : undefined;
+      part_name_details: Array.isArray(data.part_name_details)
+        ? data.part_name_details.map((pnd) => {
+            const pndId = pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null);
+            const snap = pndId ? idToProduct.get(String(pndId)) : undefined;
             return {
-              finished_good_id_name: fg.finished_good_id_name || "",
-              tolerances: Array.isArray(fg.tolerances) ? fg.tolerances : [],
-              quantities: Array.isArray(fg.quantities) ? fg.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
-              comments: Array.isArray(fg.comments) ? fg.comments : [],
+              part_name_id_name: pnd.part_name_id_name || "",
+              tolerances: Array.isArray(pnd.tolerances) ? pnd.tolerances : [],
+              quantities: Array.isArray(pnd.quantities) ? pnd.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+              comments: Array.isArray(pnd.comments) ? pnd.comments : [],
               product_snapshot: snap,
             };
           })
@@ -196,6 +199,14 @@ exports.update = TryCatch(async (req, res) => {
       raw_materials: processedRawMaterials,
       processes: Array.isArray(data.processes)
         ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
+        : [],
+      accelerators: Array.isArray(data.accelerators)
+        ? data.accelerators.map((acc) => ({
+            name: acc.name || "",
+            tolerance: acc.tolerance || "",
+            quantity: acc.quantity || "",
+            comment: acc.comment || "",
+          }))
         : [],
     },
     { new: true }

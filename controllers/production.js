@@ -18,25 +18,25 @@ exports.create = TryCatch(async (req, res) => {
 
   if (!bom) throw new ErrorHandler("BOM not found", 404);
 
-  const finishedGoods = Array.isArray(data.finished_goods)
-    ? data.finished_goods.map((fg, idx) => {
+  const partNames = Array.isArray(data.part_names)
+    ? data.part_names.map((pn, idx) => {
         const firstCode = Array.isArray(bom.compound_codes) ? bom.compound_codes[0] : undefined;
-        const bomFg = Array.isArray(bom.finished_goods) && bom.finished_goods.length > 0
-          ? (bom.finished_goods[idx] || bom.finished_goods[0])
+        const bomPn = Array.isArray(bom.part_name_details) && bom.part_name_details.length > 0
+          ? (bom.part_name_details[idx] || bom.part_name_details[0])
           : null;
-        const snap = bomFg?.product_snapshot || {};
+        const snap = bomPn?.product_snapshot || {};
         return {
           bom: data.bom,
-          compound_code: fg.compound_code || firstCode || "",
-          compound_name: fg.compound_name || bom.compound_name || "",
+          compound_code: pn.compound_code || firstCode || "",
+          compound_name: pn.compound_name || bom.compound_name || "",
           product_id: snap.product_id || undefined,
           product_name: snap.name || undefined,
-          est_qty: fg.est_qty || 0,
-          uom: fg.uom || snap.uom || "",
-          prod_qty: fg.prod_qty || 0,
-          remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
-          category: fg.category || snap.category || "",
-          total_cost: fg.total_cost || 0,
+          est_qty: pn.est_qty || 0,
+          uom: pn.uom || snap.uom || "",
+          prod_qty: pn.prod_qty || 0,
+          remain_qty: (pn.est_qty || 0) - (pn.prod_qty || 0),
+          category: pn.category || snap.category || "",
+          total_cost: pn.total_cost || 0,
         };
       })
     : [];
@@ -84,6 +84,34 @@ exports.create = TryCatch(async (req, res) => {
         }))
         .filter((p) => p.process_name);
 
+  const accelerators = Array.isArray(data.accelerators)
+    ? data.accelerators.map((acc) => {
+        const estQty = parseFloat(acc.est_qty || acc.quantity) || 0;
+        const usedQty = parseFloat(acc.used_qty) || 0;
+        return {
+          name: acc.name || "",
+          tolerance: acc.tolerance || "",
+          quantity: acc.quantity || String(estQty),
+          est_qty: estQty,
+          used_qty: usedQty,
+          remain_qty: estQty - usedQty,
+          comment: acc.comment || "",
+        };
+      })
+    : (bom.accelerators || [])
+        .map((acc) => {
+          const estQty = parseFloat(acc.quantity) || 0;
+          return {
+            name: acc.name || "",
+            tolerance: acc.tolerance || "",
+            quantity: acc.quantity || "",
+            est_qty: estQty,
+            used_qty: 0,
+            remain_qty: estQty,
+            comment: acc.comment || "",
+          };
+        });
+
   let derivedStatus = "pending";
   if (Array.isArray(processes) && processes.length > 0) {
     const allDone = processes.every(
@@ -101,9 +129,10 @@ exports.create = TryCatch(async (req, res) => {
 
   const production = await Production.create({
     bom: data.bom,
-    finished_goods: finishedGoods,
+    part_names: partNames,
     raw_materials: rawMaterials,
     processes: processes,
+    accelerators: accelerators,
     status: data.status || derivedStatus,
     createdBy: req.user?._id,
   });
@@ -184,10 +213,10 @@ exports.update = TryCatch(async (req, res) => {
   const { _id } = data;
   if (!_id) throw new ErrorHandler("Please provide production id (_id)", 400);
 
-  if (Array.isArray(data.finished_goods)) {
-    data.finished_goods = data.finished_goods.map((fg) => ({
-      ...fg,
-      remain_qty: (fg.est_qty || 0) - (fg.prod_qty || 0),
+  if (Array.isArray(data.part_names)) {
+    data.part_names = data.part_names.map((pn) => ({
+      ...pn,
+      remain_qty: (pn.est_qty || 0) - (pn.prod_qty || 0),
     }));
   }
 
@@ -215,6 +244,22 @@ exports.update = TryCatch(async (req, res) => {
       : anyStarted
       ? "in_progress"
       : "pending";
+  }
+
+  if (Array.isArray(data.accelerators)) {
+    data.accelerators = data.accelerators.map((acc) => {
+      const estQty = parseFloat(acc.est_qty || acc.quantity) || 0;
+      const usedQty = parseFloat(acc.used_qty) || 0;
+      return {
+        name: acc.name || "",
+        tolerance: acc.tolerance || "",
+        quantity: acc.quantity || String(estQty),
+        est_qty: estQty,
+        used_qty: usedQty,
+        remain_qty: estQty - usedQty,
+        comment: acc.comment || "",
+      };
+    });
   }
 
   const production = await Production.findByIdAndUpdate(_id, data, {
@@ -317,12 +362,12 @@ exports.getProductionGraphData = TryCatch(async (req, res) => {
         count: { $sum: 1 },
         totalEstQty: {
           $sum: {
-            $sum: "$finished_goods.est_qty",
+            $sum: "$part_names.est_qty",
           },
         },
         totalProdQty: {
           $sum: {
-            $sum: "$finished_goods.prod_qty",
+            $sum: "$part_names.prod_qty",
           },
         },
       },
@@ -528,12 +573,13 @@ exports.qcStats = TryCatch(async (req, res) => {
 // Mark a production as approved by QC
 exports.approve = TryCatch(async (req, res) => {
   const { id } = req.params;
+  const { approved_qty = 0, rejected_qty = 0 } = req.body;
 
   // Find production record with BOM populated
   const production = await Production.findById(id)
     .populate({
       path: "bom",
-      select: "finished_goods compound_name compound_codes",
+      select: "part_name_details compound_name compound_codes",
     });
 
   if (!production) {
@@ -543,7 +589,12 @@ exports.approve = TryCatch(async (req, res) => {
   // === Update QC Status ===
   const updatedProduction = await Production.findByIdAndUpdate(
     id,
-    { qc_status: "approved", qc_done: true },
+    { 
+      qc_status: "approved", 
+      qc_done: true,
+      approved_qty: parseFloat(approved_qty) || 0,
+      rejected_qty: parseFloat(rejected_qty) || 0,
+    },
     { new: true }
   );
 
@@ -551,35 +602,35 @@ exports.approve = TryCatch(async (req, res) => {
   session.startTransaction();
 
   try {
-    // Update finished goods inventory
-    for (const fg of production.finished_goods) {
-      const lookupCode = (fg.product_id || fg.compound_code || "").trim();
-      const lookupName = (fg.product_name || fg.compound_name || "").trim();
+    // Update part names inventory
+    for (const pn of production.part_names) {
+      const lookupCode = (pn.product_id || pn.compound_code || "").trim();
+      const lookupName = (pn.product_name || pn.compound_name || "").trim();
       let product = null;
       
-      // Try to get product reference from BOM's finished_goods
-      let bomFinishedGood = null;
-      if (production.bom && Array.isArray(production.bom.finished_goods)) {
-        bomFinishedGood = production.bom.finished_goods.find(
-          (bomFg) => 
-            (bomFg.finished_good_id_name && (
-              bomFg.finished_good_id_name.includes(fg.compound_code) ||
-              bomFg.finished_good_id_name.includes(fg.compound_name) ||
-              bomFg.finished_good_id_name.includes(lookupCode) ||
-              bomFg.finished_good_id_name.includes(lookupName)
+      // Try to get product reference from BOM's part_name_details
+      let bomPartName = null;
+      if (production.bom && Array.isArray(production.bom.part_name_details)) {
+        bomPartName = production.bom.part_name_details.find(
+          (bomPn) => 
+            (bomPn.part_name_id_name && (
+              bomPn.part_name_id_name.includes(pn.compound_code) ||
+              bomPn.part_name_id_name.includes(pn.compound_name) ||
+              bomPn.part_name_id_name.includes(lookupCode) ||
+              bomPn.part_name_id_name.includes(lookupName)
             )) ||
-            (bomFg.product_snapshot && (
-              bomFg.product_snapshot.product_id === lookupCode ||
-              bomFg.product_snapshot.name === lookupName
+            (bomPn.product_snapshot && (
+              bomPn.product_snapshot.product_id === lookupCode ||
+              bomPn.product_snapshot.name === lookupName
             ))
         );
         
-        // If found, try to extract product ID from finished_good_id_name (format: "productId-productName")
-        if (bomFinishedGood && bomFinishedGood.finished_good_id_name) {
-          const fgIdName = bomFinishedGood.finished_good_id_name;
+        // If found, try to extract product ID from part_name_id_name (format: "productId-productName")
+        if (bomPartName && bomPartName.part_name_id_name) {
+          const pnIdName = bomPartName.part_name_id_name;
           // Check if it's in "id-name" format
-          if (fgIdName.includes("-")) {
-            const possibleId = fgIdName.split("-")[0].trim();
+          if (pnIdName.includes("-")) {
+            const possibleId = pnIdName.split("-")[0].trim();
             // Try as ObjectId first
             if (mongoose.Types.ObjectId.isValid(possibleId)) {
               product = await Product.findById(possibleId).session(session);
@@ -591,13 +642,13 @@ exports.approve = TryCatch(async (req, res) => {
           }
           // Also try the whole string as product_id
           if (!product) {
-            product = await Product.findOne({ product_id: fgIdName }).session(session);
+            product = await Product.findOne({ product_id: pnIdName }).session(session);
           }
         }
         
         // Also try product_snapshot from BOM
-        if (!product && bomFinishedGood && bomFinishedGood.product_snapshot) {
-          const snap = bomFinishedGood.product_snapshot;
+        if (!product && bomPartName && bomPartName.product_snapshot) {
+          const snap = bomPartName.product_snapshot;
           if (snap.product_id) {
             product = await Product.findOne({ product_id: snap.product_id }).session(session);
           }
@@ -644,43 +695,74 @@ exports.approve = TryCatch(async (req, res) => {
       }
       
       if (!product) {
-        const errorMsg = `Product not found for finished good - Code: ${lookupCode}, Name: ${lookupName}, Production ID: ${production.production_id}. Cannot update inventory.`;
+        const errorMsg = `Product not found for part name - Code: ${lookupCode}, Name: ${lookupName}, Production ID: ${production.production_id}. Cannot update inventory.`;
         console.error(errorMsg);
-        await session.abortTransaction();
-        session.endSession();
+        // Don't abort here - let catch block handle it
         throw new ErrorHandler(errorMsg, 404);
       }
       
-      const delta = Number(fg.prod_qty) || 0;
-      if (delta <= 0) {
-        console.log(`Skipping finished good update - prod_qty is 0 or invalid for ${lookupName || lookupCode}`);
-        continue;
+      // Use approved_qty if provided, otherwise use prod_qty
+      const approvedQty = parseFloat(approved_qty) || 0;
+      const rejectedQty = parseFloat(rejected_qty) || 0;
+      const delta = approvedQty > 0 ? approvedQty : (Number(pn.prod_qty) || 0);
+      
+      // Update approved quantity to current_stock
+      if (delta > 0) {
+        const currentStock = Number(product.current_stock) || 0;
+        const newStock = currentStock + delta;
+        
+        console.log(`Updating part name inventory - Product: ${product.name}, Current: ${currentStock}, Adding: ${delta}, New: ${newStock}`);
+        
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "increase",
+            quantity_changed: delta,
+            last_change: {
+              production_id: production.production_id,
+              changed_on: new Date(),
+              change_type: "increase",
+              qty: delta,
+              reason: `Production approval for ${lookupName || lookupCode} (Approved: ${approvedQty}, Rejected: ${rejectedQty})`,
+            },
+          },
+          { new: true, session }
+        );
+        
+        console.log(`Part name inventory updated successfully for ${product.name}`);
       }
       
-      const currentStock = Number(product.current_stock) || 0;
-      const newStock = currentStock + delta;
-      
-      console.log(`Updating finished good inventory - Product: ${product.name}, Current: ${currentStock}, Adding: ${delta}, New: ${newStock}`);
-      
-      await Product.findByIdAndUpdate(
-        product._id,
-        {
-          current_stock: newStock,
-          updated_stock: newStock,
-          change_type: "increase",
-          quantity_changed: delta,
-          last_change: {
-            production_id: production.production_id,
-            changed_on: new Date(),
-            change_type: "increase",
-            qty: delta,
-            reason: `Production approval for ${lookupName || lookupCode}`,
+      // Update rejected quantity to reject_stock
+      if (rejectedQty > 0) {
+        const currentRejectStock = Number(product.reject_stock) || 0;
+        const newRejectStock = currentRejectStock + rejectedQty;
+        
+        console.log(`Updating part name reject inventory - Product: ${product.name}, Current Reject Stock: ${currentRejectStock}, Adding: ${rejectedQty}, New Reject Stock: ${newRejectStock}`);
+        
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            reject_stock: newRejectStock,
+            last_change: {
+              production_id: production.production_id,
+              changed_on: new Date(),
+              change_type: "increase",
+              qty: rejectedQty,
+              reason: `Production approval - rejected quantity for ${lookupName || lookupCode} (Rejected: ${rejectedQty})`,
+            },
           },
-        },
-        { new: true, session }
-      );
+          { new: true, session }
+        );
+        
+        console.log(`Part name reject inventory updated successfully for ${product.name}`);
+      }
       
-      console.log(`Finished good inventory updated successfully for ${product.name}`);
+      if (delta <= 0 && rejectedQty <= 0) {
+        console.log(`Skipping part name update - approved_qty/prod_qty and rejected_qty are 0 or invalid for ${lookupName || lookupCode}`);
+        continue;
+      }
     }
 
     // console.log("hey", production)
@@ -709,7 +791,7 @@ exports.approve = TryCatch(async (req, res) => {
               changed_on: new Date(),
               change_type: "decrease",
               qty: usedQty,
-              reason: `Used in production of ${production.finished_goods[0].compound_name}`,
+              reason: `Used in production of ${production.part_names[0].compound_name}`,
             },
           },
           { new: true, session }
@@ -726,7 +808,10 @@ exports.approve = TryCatch(async (req, res) => {
       production: updatedProduction,
     });
   } catch (err) {
-    await session.abortTransaction();
+    // Only abort if transaction is still in progress
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     session.endSession();
     throw err;
   }
@@ -737,19 +822,180 @@ exports.approve = TryCatch(async (req, res) => {
 // Mark a production as rejected by QC
 exports.reject = TryCatch(async (req, res) => {
   const { id } = req.params;
-  const { reason } = req.body || {};
-  const updated = await Production.findByIdAndUpdate(
+  const { reason, approved_qty = 0, rejected_qty = 0 } = req.body || {};
+
+  // Find production record with BOM populated
+  const production = await Production.findById(id)
+    .populate({
+      path: "bom",
+      select: "part_name_details compound_name compound_codes",
+    });
+
+  if (!production) {
+    return res.status(404).json({ success: false, message: "Production not found" });
+  }
+
+  // === Update QC Status ===
+  const updatedProduction = await Production.findByIdAndUpdate(
     id,
-    { qc_status: "rejected", qc_done: true, qc_reject_reason: reason },
+    { 
+      qc_status: "rejected", 
+      qc_done: true, 
+      qc_reject_reason: reason,
+      approved_qty: parseFloat(approved_qty) || 0,
+      rejected_qty: parseFloat(rejected_qty) || 0,
+    },
     { new: true }
   );
-  if (!updated) throw new ErrorHandler("Production not found", 404);
-  return res.status(200).json({
-    status: 200,
-    success: true,
-    message: "Production rejected",
-    production: updated,
-  });
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Update part names inventory with rejected quantity
+    for (const pn of production.part_names) {
+      const lookupCode = (pn.product_id || pn.compound_code || "").trim();
+      const lookupName = (pn.product_name || pn.compound_name || "").trim();
+      let product = null;
+      
+      // Try to get product reference from BOM's part_name_details
+      let bomPartName = null;
+      if (production.bom && Array.isArray(production.bom.part_name_details)) {
+        bomPartName = production.bom.part_name_details.find(
+          (bomPn) => 
+            (bomPn.part_name_id_name && (
+              bomPn.part_name_id_name.includes(pn.compound_code) ||
+              bomPn.part_name_id_name.includes(pn.compound_name) ||
+              bomPn.part_name_id_name.includes(lookupCode) ||
+              bomPn.part_name_id_name.includes(lookupName)
+            )) ||
+            (bomPn.product_snapshot && (
+              bomPn.product_snapshot.product_id === lookupCode ||
+              bomPn.product_snapshot.name === lookupName
+            ))
+        );
+        
+        // If found, try to extract product ID from part_name_id_name (format: "productId-productName")
+        if (bomPartName && bomPartName.part_name_id_name) {
+          const pnIdName = bomPartName.part_name_id_name;
+          // Check if it's in "id-name" format
+          if (pnIdName.includes("-")) {
+            const possibleId = pnIdName.split("-")[0].trim();
+            // Try as ObjectId first
+            if (mongoose.Types.ObjectId.isValid(possibleId)) {
+              product = await Product.findById(possibleId).session(session);
+            }
+            // If not found, try as product_id
+            if (!product) {
+              product = await Product.findOne({ product_id: possibleId }).session(session);
+            }
+          }
+          // Also try the whole string as product_id
+          if (!product) {
+            product = await Product.findOne({ product_id: pnIdName }).session(session);
+          }
+        }
+        
+        // Also try product_snapshot from BOM
+        if (!product && bomPartName && bomPartName.product_snapshot) {
+          const snap = bomPartName.product_snapshot;
+          if (snap.product_id) {
+            product = await Product.findOne({ product_id: snap.product_id }).session(session);
+          }
+          if (!product && snap._id && mongoose.Types.ObjectId.isValid(snap._id)) {
+            product = await Product.findById(snap._id).session(session);
+          }
+        }
+      }
+      
+      // Try multiple lookup strategies if product not found from BOM
+      if (!product && lookupCode) {
+        // Try by product_id (exact match)
+        product = await Product.findOne({ product_id: lookupCode }).session(session);
+        
+        // If not found and lookupCode might be an ObjectId, try by _id
+        if (!product && mongoose.Types.ObjectId.isValid(lookupCode)) {
+          product = await Product.findById(lookupCode).session(session);
+        }
+      }
+      
+      // Try by name (case-insensitive partial match)
+      if (!product && lookupName) {
+        // Exact match first
+        product = await Product.findOne({ 
+          name: { $regex: new RegExp(`^${lookupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        }).session(session);
+        
+        // If exact match fails, try partial match
+        if (!product) {
+          product = await Product.findOne({ 
+            name: { $regex: new RegExp(lookupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+          }).session(session);
+        }
+      }
+      
+      // Try by compound_code if it exists in product (some products might have compound_code field)
+      if (!product && lookupCode) {
+        product = await Product.findOne({ 
+          $or: [
+            { compound_code: lookupCode },
+            { name: { $regex: new RegExp(lookupCode, 'i') } }
+          ]
+        }).session(session);
+      }
+      
+      if (!product) {
+        const errorMsg = `Product not found for part name - Code: ${lookupCode}, Name: ${lookupName}, Production ID: ${production.production_id}. Cannot update inventory.`;
+        console.error(errorMsg);
+        // Don't abort here - let catch block handle it
+        throw new ErrorHandler(errorMsg, 404);
+      }
+      
+      // Use rejected_qty to add to reject_stock
+      const rejectedQty = parseFloat(rejected_qty) || 0;
+      
+      if (rejectedQty > 0) {
+        const currentRejectStock = Number(product.reject_stock) || 0;
+        const newRejectStock = currentRejectStock + rejectedQty;
+        
+        console.log(`Updating rejected inventory - Product: ${product.name}, Current Reject Stock: ${currentRejectStock}, Adding: ${rejectedQty}, New Reject Stock: ${newRejectStock}`);
+        
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            reject_stock: newRejectStock,
+            last_change: {
+              production_id: production.production_id,
+              changed_on: new Date(),
+              change_type: "increase",
+              qty: rejectedQty,
+              reason: `Production rejection for ${lookupName || lookupCode} (Rejected: ${rejectedQty})`,
+            },
+          },
+          { new: true, session }
+        );
+        
+        console.log(`Rejected inventory updated successfully for ${product.name}`);
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json({
+      status: 200,
+      success: true,
+      message: "Production rejected and inventory updated",
+      production: updatedProduction,
+    });
+  } catch (err) {
+    // Only abort if transaction is still in progress
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
+    throw err;
+  }
 });
 
 // Mark a production as ready for QC
@@ -767,4 +1013,121 @@ exports.markReadyForQC = TryCatch(async (req, res) => {
     message: "Production marked ready for QC",
     production: updated,
   });
+});
+
+// Get QC History - all productions with qc_done: true and gateman quality checks
+exports.getQcHistory = TryCatch(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const QualityCheck = require("../models/qualityCheck");
+
+  // Fetch Production QC history
+  const productionHistory = await Production.find({ qc_done: true })
+    .populate({
+      path: "bom",
+      select: "compound_name compound_codes",
+    })
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  // Fetch Gateman Quality Check history
+  const gatemanHistory = await QualityCheck.find({})
+    .populate({
+      path: "gateman_entry_id",
+      select: "po_number company_name invoice_number",
+    })
+    .sort({ updatedAt: -1 })
+    .lean();
+
+  // Combine and format both histories
+  const combinedHistory = [
+    ...productionHistory.map((item) => ({
+      ...item,
+      qc_type: "production",
+      id: item._id,
+    })),
+    ...gatemanHistory.map((item) => ({
+      ...item,
+      qc_type: "gateman",
+      id: item._id,
+      approved_qty: item.approved_quantity,
+      rejected_qty: item.rejected_quantity,
+    })),
+  ];
+
+  // Sort by updatedAt descending
+  combinedHistory.sort((a, b) => {
+    const dateA = new Date(a.updatedAt || a.createdAt);
+    const dateB = new Date(b.updatedAt || b.createdAt);
+    return dateB - dateA;
+  });
+
+  // Paginate
+  const total = combinedHistory.length;
+  const paginatedHistory = combinedHistory.slice(skip, skip + limit);
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "QC history retrieved successfully",
+    history: paginatedHistory,
+    page,
+    limit,
+    total,
+  });
+});
+
+// Delete QC History entry
+exports.deleteQcHistory = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const { type } = req.query; // 'production' or 'gateman'
+  
+  if (type === "gateman") {
+    const QualityCheck = require("../models/qualityCheck");
+    const qualityCheck = await QualityCheck.findById(id);
+    
+    if (!qualityCheck) {
+      throw new ErrorHandler("Quality check not found", 404);
+    }
+
+    await QualityCheck.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      status: 200,
+      success: true,
+      message: "Gateman QC history entry deleted successfully",
+    });
+  } else {
+    // Production QC
+    const production = await Production.findById(id);
+    if (!production) {
+      throw new ErrorHandler("Production not found", 404);
+    }
+
+    if (!production.qc_done) {
+      throw new ErrorHandler("This production is not in QC history", 400);
+    }
+
+    // Remove QC status but keep the production record
+    const updated = await Production.findByIdAndUpdate(
+      id,
+      {
+        qc_done: false,
+        qc_status: null,
+        approved_qty: 0,
+        rejected_qty: 0,
+        qc_reject_reason: null,
+      },
+      { new: true }
+    );
+
+    return res.status(200).json({
+      status: 200,
+      success: true,
+      message: "Production QC history entry deleted successfully",
+      production: updated,
+    });
+  }
 });

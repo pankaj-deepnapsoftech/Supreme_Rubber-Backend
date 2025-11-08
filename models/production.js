@@ -1,6 +1,6 @@
 const { Schema, model } = require("mongoose");
 
-const finishedGoodSchema = new Schema(
+const partNameSchema = new Schema(
   {
     bom: { type: Schema.Types.ObjectId, ref: "BOM", required: true },
     compound_code: String,
@@ -47,6 +47,19 @@ const processSchema = new Schema(
   { _id: false }
 );
 
+const acceleratorSchema = new Schema(
+  {
+    name: String,
+    tolerance: String,
+    quantity: String,
+    est_qty: { type: Number, default: 0 },
+    used_qty: { type: Number, default: 0 },
+    remain_qty: { type: Number, default: 0 },
+    comment: String,
+  },
+  { _id: false }
+);
+
 const productionSchema = new Schema(
   {
     production_id: {
@@ -59,11 +72,11 @@ const productionSchema = new Schema(
       ref: "BOM",
       required: true,
     },
-    finished_goods: {
-      type: [finishedGoodSchema],
+    part_names: {
+      type: [partNameSchema],
       validate: {
         validator: (arr) => arr.length > 0,
-        message: "At least one finished good must be added",
+        message: "At least one part name must be added",
       },
     },
     raw_materials: {
@@ -72,6 +85,10 @@ const productionSchema = new Schema(
     },
     processes: {
       type: [processSchema],
+      default: [],
+    },
+    accelerators: {
+      type: [acceleratorSchema],
       default: [],
     },
     status: {
@@ -91,6 +108,14 @@ const productionSchema = new Schema(
     ready_for_qc: {
       type: Boolean,
       default: false,
+    },
+    approved_qty: {
+      type: Number,
+      default: 0,
+    },
+    rejected_qty: {
+      type: Number,
+      default: 0,
     },
     createdBy: {
       type: Schema.Types.ObjectId,

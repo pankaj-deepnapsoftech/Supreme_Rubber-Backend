@@ -13,14 +13,12 @@ const bomSchema = new Schema(
     compound_name: { type: String },
     part_names: [String],
     hardnesses: [String],
-    quantity: { type: Number, default: 0 },
-    comment: { type: String, default: "" },
 
-    // Finished Goods array with tolerance, quantity, and comment arrays
-    finished_goods: [
+    // Part Name Details array with tolerance, quantity, and comment arrays
+    part_name_details: [
       new Schema(
         {
-          finished_good_id_name: {
+          part_name_id_name: {
             type: String,
             required: true,
           },
@@ -53,6 +51,18 @@ const bomSchema = new Schema(
     ],
 
     processes: [String],
+
+    accelerators: [
+      new Schema(
+        {
+          name: String,
+          tolerance: String,
+          quantity: String,
+          comment: String,
+        },
+        { _id: false }
+      ),
+    ],
 
     createdBy: {
       type: Schema.Types.ObjectId,
