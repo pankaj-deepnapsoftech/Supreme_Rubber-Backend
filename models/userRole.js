@@ -23,6 +23,7 @@ const userRoleSchema = new Schema(
           "employee",
           "inventory",
           "quality check",
+          "qc history",
           "production",
           "bom",
           "gateman",
@@ -31,7 +32,7 @@ const userRoleSchema = new Schema(
           "production start"
         ],
         message:
-          "Permissions should be one of the following: product, store, approval, agent, bom",
+          "Permissions should be one of the following: dashboard, user role, employee, inventory, quality check, qc history, production, bom, gateman, supplier, purchase order, production start",
       },
     },
     description: {
