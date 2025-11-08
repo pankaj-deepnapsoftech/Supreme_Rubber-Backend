@@ -12,14 +12,10 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter (PDF only)
+// File filter (Allow all file types - PDF, images, etc.)
 const fileFilter = (req, file, cb) => {
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (ext === ".pdf") {
-    cb(null, true);
-  } else {
-    cb(new Error("Only PDF files are allowed"), false);
-  }
+  // Allow all file types
+  cb(null, true);
 };
 
 const upload = multer({ storage, fileFilter });

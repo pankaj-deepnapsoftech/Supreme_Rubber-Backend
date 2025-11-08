@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 
 const cors = require("cors");
 const { connectDB } = require("./utils/connectDB");
@@ -50,7 +51,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 
 
