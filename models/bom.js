@@ -13,6 +13,8 @@ const bomSchema = new Schema(
     compound_name: { type: String },
     part_names: [String],
     hardnesses: [String],
+    quantity: { type: Number, default: 0 },
+    comment: { type: String, default: "" },
 
     // Finished Goods array with tolerance, quantity, and comment arrays
     finished_goods: [
