@@ -42,6 +42,9 @@ const qualityCheckSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "User",
     },
+    attached_report: {
+      type: String,
+    },
   },
   {
     timestamps: true,

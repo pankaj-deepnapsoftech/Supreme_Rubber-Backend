@@ -2,8 +2,8 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// Ensure uploads/gateman directory exists
-const uploadDir = "uploads/gateman";
+// Ensure uploads/quality-check directory exists
+const uploadDir = "uploads/quality-check";
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter (Allow all file types - PDF, images, etc.)
+// File filter (Allow all file types)
 const fileFilter = (req, file, cb) => {
   // Allow all file types
   cb(null, true);
@@ -32,3 +32,4 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage, fileFilter });
 
 module.exports = { upload };
+

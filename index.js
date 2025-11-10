@@ -1,8 +1,24 @@
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 
 const cors = require("cors");
 const { connectDB } = require("./utils/connectDB");
+
+// Ensure uploads directories exist
+const uploadsDir = path.join(__dirname, "uploads");
+const qualityCheckDir = path.join(__dirname, "uploads", "quality-check");
+const gatemanDir = path.join(__dirname, "uploads", "gateman");
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+if (!fs.existsSync(qualityCheckDir)) {
+  fs.mkdirSync(qualityCheckDir, { recursive: true });
+}
+if (!fs.existsSync(gatemanDir)) {
+  fs.mkdirSync(gatemanDir, { recursive: true });
+}
 const authRoutes = require("./routes/user");
 const userRoleRoutes = require("./routes/userRole");
 const productRoutes = require("./routes/product");

@@ -10,15 +10,26 @@ const {
   getAllQualityChecks,
   deleteQualityCheck,
 } = require("../controllers/qualityCheck");
+const { upload } = require("../utils/uploadQualityCheck");
 const router = express.Router();
 
 router.route("/").get(isAuthenticated, isAllowed, getAllQualityChecks);
 
-router.route("/").post(isAuthenticated, isAllowed, createQualityCheck);
+router.route("/").post(
+  isAuthenticated,
+  isAllowed,
+  upload.fields([{ name: "attached_report", maxCount: 1 }]),
+  createQualityCheck
+);
 
 router.route("/:id").get(isAuthenticated, isAllowed, getQualityCheckById);
 
-router.route("/:id").put(isAuthenticated, isAllowed, updateQualityCheck);
+router.route("/:id").put(
+  isAuthenticated,
+  isAllowed,
+  upload.fields([{ name: "attached_report", maxCount: 1 }]),
+  updateQualityCheck
+);
 
 router.route("/:id").delete(isAuthenticated, isAllowed, deleteQualityCheck);
 

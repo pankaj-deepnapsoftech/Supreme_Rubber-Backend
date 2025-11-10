@@ -106,9 +106,25 @@ const getAllQualityChecks = async (req, res) => {
 
 const createQualityCheck = async (req, res) => {
   try {
-    const validationResult = createQualityCheckSchema.safeParse(req.body);
-
+    const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
     
+    // Handle file upload if present
+    const reportFile = req.files?.attached_report?.[0];
+    const attached_report = reportFile
+      ? `${BASE_URL}/${reportFile.path.replace(/\\/g, "/")}`
+      : null;
+
+    // Parse body data - handle form-data (numbers come as strings from multer)
+    let bodyData = { ...req.body };
+    // Convert string numbers to actual numbers for validation
+    if (bodyData.approved_quantity !== undefined) {
+      bodyData.approved_quantity = parseInt(bodyData.approved_quantity) || 0;
+    }
+    if (bodyData.rejected_quantity !== undefined) {
+      bodyData.rejected_quantity = parseInt(bodyData.rejected_quantity) || 0;
+    }
+
+    const validationResult = createQualityCheckSchema.safeParse(bodyData);
 
     if (!validationResult.success) {
       return res.status(400).json({
@@ -185,6 +201,7 @@ const createQualityCheck = async (req, res) => {
       max_allowed_quantity: gatemanItem.item_quantity,
       status: "completed",
       created_by: req.user?.id,
+      attached_report,
     });
 
     const savedQualityCheck = await qualityCheck.save();
@@ -393,7 +410,25 @@ const deleteQualityCheck = async (req, res) => {
 const updateQualityCheck = async (req, res) => {
   try {
     const { id } = req.params;
-    const validationResult = createQualityCheckSchema.safeParse(req.body);
+    const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+    
+    // Handle file upload if present
+    const reportFile = req.files?.attached_report?.[0];
+    const attached_report = reportFile
+      ? `${BASE_URL}/${reportFile.path.replace(/\\/g, "/")}`
+      : undefined;
+
+    // Parse body data - handle form-data (numbers come as strings from multer)
+    let bodyData = { ...req.body };
+    // Convert string numbers to actual numbers for validation
+    if (bodyData.approved_quantity !== undefined) {
+      bodyData.approved_quantity = parseInt(bodyData.approved_quantity) || 0;
+    }
+    if (bodyData.rejected_quantity !== undefined) {
+      bodyData.rejected_quantity = parseInt(bodyData.rejected_quantity) || 0;
+    }
+
+    const validationResult = createQualityCheckSchema.safeParse(bodyData);
 
     if (!validationResult.success) {
       return res.status(400).json({
@@ -442,13 +477,20 @@ const updateQualityCheck = async (req, res) => {
       approved_quantity - existingQualityCheck.approved_quantity;
 
     // Update the quality check
+    const updateData = {
+      approved_quantity,
+      rejected_quantity,
+      total_quantity: approved_quantity + rejected_quantity,
+    };
+    
+    // Only update attached_report if a new file was uploaded
+    if (attached_report !== undefined) {
+      updateData.attached_report = attached_report;
+    }
+
     const updatedQualityCheck = await QualityCheck.findByIdAndUpdate(
       id,
-      {
-        approved_quantity,
-        rejected_quantity,
-        total_quantity: approved_quantity + rejected_quantity,
-      },
+      updateData,
       { new: true }
     )
       .populate("gateman_entry_id", "po_number company_name invoice_number")
