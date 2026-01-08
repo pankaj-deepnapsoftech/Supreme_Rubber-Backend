@@ -9,6 +9,13 @@ const { sendEmail } = require("../utils/sendEmail");
 exports.create = TryCatch(async (req, res) => {
   const userDetails = req.body;
   const totalUsers = await User.find().countDocuments();
+  
+  // Ensure only first user can be admin
+  const existingSuperAdmin = await User.findOne({ isSuper: true });
+  if (existingSuperAdmin) {
+    throw new ErrorHandler("Only one admin is allowed. New registrations are disabled. Please contact the admin.", 403);
+  }
+
   const nonSuperUserCount = await User.countDocuments({ isSuper: false });
 
   let isSuper = false;
@@ -17,7 +24,6 @@ exports.create = TryCatch(async (req, res) => {
   if (totalUsers === 0) {
     isSuper = true;
   } else {
-    const nonSuperUserCount = await User.countDocuments({ isSuper: false });
     const prefix =
       userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
     const idNumber = String(nonSuperUserCount + 1).padStart(4, "0");
@@ -382,6 +388,74 @@ exports.all = TryCatch(async (req, res) => {
     totalUsers,
     hasNextPage,
     users,
+  });
+});
+
+// Check if admin exists
+exports.checkAdminExists = TryCatch(async (req, res) => {
+  const existingSuperAdmin = await User.findOne({ isSuper: true });
+  
+  res.status(200).json({
+    status: 200,
+    success: true,
+    adminExists: !!existingSuperAdmin,
+  });
+});
+
+// Create employee from employee module - automatically verified
+exports.createEmployee = TryCatch(async (req, res) => {
+  const userDetails = req.body;
+
+  // Ensure only one admin exists - this route is protected by isSuper middleware
+  // but we ensure we never create another super admin from here
+  const existingSuperAdmin = await User.findOne({ isSuper: true });
+  if (existingSuperAdmin && existingSuperAdmin._id.toString() !== req.user?._id?.toString()) {
+    // This should not happen since route is protected, but extra safety
+    throw new ErrorHandler("Only one admin is allowed.", 403);
+  }
+
+  // Count non-super users for employee ID generation
+  const nonSuperUserCount = await User.countDocuments({ isSuper: false });
+
+  // If the non-super user count exceeds 100, throw an error
+  if (nonSuperUserCount >= 100) {
+    throw new ErrorHandler("Maximum limit of 100 employees reached", 403);
+  }
+
+  // Generate employee ID
+  const prefix = userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
+  const idNumber = String(nonSuperUserCount + 1).padStart(4, "0");
+  const employeeId = `${prefix}${idNumber}`;
+
+  // Create employee - always verified and never super admin
+  const user = await User.create({
+    ...userDetails,
+    isSuper: false,
+    employeeId,
+    isVerified: true, // Employees created from module are automatically verified
+  });
+  await user.save();
+
+  // Send welcome email
+  sendEmail(
+    "Welcome to Supreme Rubber",
+    `
+      <strong>Dear ${user.first_name}</strong>,
+  
+      <p>Your employee account has been created successfully!</p>
+      <p><strong>Employee ID:</strong> ${employeeId}</p>
+      <p>You can now login to your account using your email and password.</p>
+      `,
+    user?.email
+  );
+
+  user.password = undefined;
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Employee created successfully and is verified.",
+    user,
   });
 });
 

@@ -1,6 +1,7 @@
 const express = require("express");
 const {
     create,
+    createEmployee,
     update,
     remove,
     details,
@@ -12,6 +13,7 @@ const {
     resendOtp,
     all,
     employeeDetails,
+    checkAdminExists,
 } = require("../controllers/user");
 const { verifyOTP } = require("../middlewares/verifyOTP");
 const { isUserVerified } = require("../middlewares/isVerified");
@@ -20,7 +22,9 @@ const { isSuper } = require("../middlewares/isSuper");
 const { isAllowed } = require("../middlewares/isAllowed");
 const router = express.Router();
 
+router.get("/check-admin", checkAdminExists);
 router.post("/", create);
+router.post("/employee", isAuthenticated, isSuper, createEmployee);
 router.get("/all", isAuthenticated, all);
 // router.get("/all", isAuthenticated, isSuper, all);
 router.post("/verify", verifyOTP, verifyUser);
