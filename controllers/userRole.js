@@ -8,16 +8,35 @@ exports.create = TryCatch(async (req, res) => {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
 
+  let permis = roleData?.permissions || [];
+  let data = [];
+
+  // If inventory is selected, automatically add inventory sub-modules
+  if (permis?.includes("inventory")) {
+    const inventoryModules = ["raw material", "part name", "compound name"];
+    // Add inventory modules that aren't already in permissions
+    inventoryModules.forEach(module => {
+      if (!permis.includes(module)) {
+        data.push(module);
+      }
+    });
+  }
+
   // Trim whitespace from role name
   const trimmedRoleName = (roleData.role || "").trim();
-  
+
   if (!trimmedRoleName) {
     throw new ErrorHandler("Role name is required", 400);
   }
 
   // Check if role already exists (case-insensitive)
   const existingRole = await UserRole.findOne({
-    role: { $regex: new RegExp(`^${trimmedRoleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+    role: {
+      $regex: new RegExp(
+        `^${trimmedRoleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+        "i"
+      ),
+    },
   });
 
   if (existingRole) {
@@ -29,6 +48,7 @@ exports.create = TryCatch(async (req, res) => {
     const createdRole = await UserRole.create({
       ...roleData,
       role: trimmedRoleName,
+      permissions: [...data, ...permis],
     });
 
     res.status(200).json({
@@ -39,7 +59,7 @@ exports.create = TryCatch(async (req, res) => {
     });
   } catch (dbError) {
     // Handle MongoDB duplicate key error (E11000)
-    if (dbError.code === 11000 || dbError.name === 'MongoServerError') {
+    if (dbError.code === 11000 || dbError.name === "MongoServerError") {
       throw new ErrorHandler(`Role "${trimmedRoleName}" already exists`, 400);
     }
     throw dbError;
@@ -57,9 +77,21 @@ exports.edit = TryCatch(async (req, res) => {
     throw new ErrorHandler("User role not found", 400);
   }
 
+  // Handle inventory permissions
+  let finalPermissions = permissions || [];
+  if (finalPermissions.includes("inventory")) {
+    const inventoryModules = ["raw material", "part name", "compound name"];
+    // Add inventory modules that aren't already in permissions
+    inventoryModules.forEach(module => {
+      if (!finalPermissions.includes(module)) {
+        finalPermissions.push(module);
+      }
+    });
+  }
+
   // Trim whitespace from role name
   const trimmedRoleName = (role || "").trim();
-  
+
   if (!trimmedRoleName) {
     throw new ErrorHandler("Role name is required", 400);
   }
@@ -67,8 +99,13 @@ exports.edit = TryCatch(async (req, res) => {
   // Check if role name already exists (case-insensitive, excluding current role)
   if (trimmedRoleName.toLowerCase() !== userRole.role.toLowerCase()) {
     const existingRole = await UserRole.findOne({
-      role: { $regex: new RegExp(`^${trimmedRoleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-      _id: { $ne: _id }
+      role: {
+        $regex: new RegExp(
+          `^${trimmedRoleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+          "i"
+        ),
+      },
+      _id: { $ne: _id },
     });
 
     if (existingRole) {
@@ -79,7 +116,7 @@ exports.edit = TryCatch(async (req, res) => {
   try {
     const roleUpdated = await UserRole.findByIdAndUpdate(
       { _id },
-      { $set: { role: trimmedRoleName, description, permissions } },
+      { $set: { role: trimmedRoleName, description, permissions: finalPermissions } },
       { new: true }
     );
 
@@ -91,7 +128,7 @@ exports.edit = TryCatch(async (req, res) => {
     });
   } catch (dbError) {
     // Handle MongoDB duplicate key error (E11000)
-    if (dbError.code === 11000 || dbError.name === 'MongoServerError') {
+    if (dbError.code === 11000 || dbError.name === "MongoServerError") {
       throw new ErrorHandler(`Role "${trimmedRoleName}" already exists`, 400);
     }
     throw dbError;
@@ -161,6 +198,3 @@ exports.all = TryCatch(async (req, res) => {
     roles,
   });
 });
-
-
-
