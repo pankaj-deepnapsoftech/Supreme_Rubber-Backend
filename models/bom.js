@@ -8,9 +8,16 @@ const bomSchema = new Schema(
       index: true,
     },
     
+    bom_type: {
+      type: String,
+      enum: ["compound", "part-name"],
+      default: null,
+    },
+    
     // Arrays for compound codes, part names, and hardness
     compound_codes: [String],    // Single compound name (requested)
     compound_name: { type: String },
+    compound_weight: { type: String },
     part_names: [String],
     hardnesses: [String],
 

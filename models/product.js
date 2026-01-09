@@ -105,6 +105,9 @@ const productSchema = new Schema(
     distributor_price: {
       type: Number,
     },
+    weight: {
+      type: String,
+    },
     store: {
       type: Schema.Types.ObjectId,
       ref: "Store",

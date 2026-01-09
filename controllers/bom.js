@@ -1,6 +1,13 @@
 const BOM = require("../models/bom");
 const Product = require("../models/product");
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const { generateProductId } = require("../utils/generateProductId");
+
+// Utility function to capitalize first letter of each word
+const capitalizeWords = (str) => {
+  if (!str) return str;
+  return str.replace(/\b\w/g, (char) => char.toUpperCase());
+};
 
 exports.create = TryCatch(async (req, res) => {
   const data = req.body;
@@ -54,26 +61,36 @@ exports.create = TryCatch(async (req, res) => {
       })
     : [];
 
-  const bom = await BOM.create({
-    bom_id: bomId,
-    compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
-    compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
-    part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
-    hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
-    part_name_details: Array.isArray(data.part_name_details)
-      ? data.part_name_details.map((pnd) => {
+  // Filter out empty part_name_details entries (where part_name_id_name is empty)
+  const filteredPartNameDetails = Array.isArray(data.part_name_details)
+    ? data.part_name_details
+        .filter((pnd) => pnd.part_name_id_name && typeof pnd.part_name_id_name === "string" && pnd.part_name_id_name.trim() !== "")
+        .map((pnd) => {
           const pndId = pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null);
           const snap = pndId ? idToProduct.get(String(pndId)) : undefined;
           return {
-            part_name_id_name: pnd.part_name_id_name || "",
+            part_name_id_name: pnd.part_name_id_name.trim(),
             tolerances: Array.isArray(pnd.tolerances) ? pnd.tolerances : [],
             quantities: Array.isArray(pnd.quantities) ? pnd.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
             comments: Array.isArray(pnd.comments) ? pnd.comments : [],
             product_snapshot: snap,
           };
         })
-      : [],
-    raw_materials: processedRawMaterials,
+    : [];
+
+  // Filter out empty raw_materials entries (where raw_material_id is empty)
+  const filteredRawMaterials = processedRawMaterials.filter((rm) => rm.raw_material_id);
+
+  const bom = await BOM.create({
+    bom_id: bomId,
+    bom_type: data.bom_type && (data.bom_type === "compound" || data.bom_type === "part-name") ? data.bom_type : undefined,
+    compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
+    compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
+    compound_weight: typeof data.compound_weight === "string" ? data.compound_weight : undefined,
+    part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
+    hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
+    part_name_details: filteredPartNameDetails,
+    raw_materials: filteredRawMaterials,
     processes: Array.isArray(data.processes)
       ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
       : [],
@@ -88,6 +105,38 @@ exports.create = TryCatch(async (req, res) => {
     createdBy: req.user?._id,
   });
 
+  // If bom_type is "compound" and compound_name exists, create a compound product
+  if (data.bom_type === "compound" && data.compound_name && typeof data.compound_name === "string" && data.compound_name.trim() !== "") {
+    try {
+      const compoundCategory = "Compound Name";
+      const generatedId = await generateProductId(compoundCategory);
+      
+      // Check if compound with same name already exists
+      const existingCompound = await Product.findOne({ 
+        name: capitalizeWords(data.compound_name.trim()),
+        category: compoundCategory 
+      });
+
+      if (!existingCompound) {
+        await Product.create({
+          name: capitalizeWords(data.compound_name.trim()),
+          category: compoundCategory,
+          product_id: generatedId,
+          uom: "Kg",
+          current_stock: 0,
+          price: 0,
+          item_type: "Buy",
+          weight: typeof data.compound_weight === "string" ? data.compound_weight.trim() : undefined,
+          approved: req.user?.isSuper || false,
+        });
+      }
+    } catch (error) {
+      console.error("Error creating compound product:", error);
+      // Don't throw error, just log it - BOM is already created
+    }
+  }
+
+
   res.status(200).json({
     status: 200,
     success: true,
@@ -101,9 +150,16 @@ exports.all = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page, 10) || 1; // default 1
   const limit = parseInt(req.query.limit, 10) || 10; // default 10
   const skip = (page - 1) * limit;
+  const bom_type = req.query.bom_type; // Filter by BOM type: "compound" or "part-name"
+
+  // Build query filter
+  const queryFilter = {};
+  if (bom_type && (bom_type === "compound" || bom_type === "part-name")) {
+    queryFilter.bom_type = bom_type;
+  }
 
   // Fetch paginated BOMs
-  const list = await BOM.find({})
+  const list = await BOM.find(queryFilter)
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
@@ -113,7 +169,7 @@ exports.all = TryCatch(async (req, res) => {
     });
 
   // Get total count for pagination info
-  const total = await BOM.countDocuments();
+  const total = await BOM.countDocuments(queryFilter);
 
   res.status(200).json({
     status: 200,
@@ -176,27 +232,37 @@ exports.update = TryCatch(async (req, res) => {
       })
     : [];
 
+  // Filter out empty part_name_details entries (where part_name_id_name is empty)
+  const filteredPartNameDetails = Array.isArray(data.part_name_details)
+    ? data.part_name_details
+        .filter((pnd) => pnd.part_name_id_name && typeof pnd.part_name_id_name === "string" && pnd.part_name_id_name.trim() !== "")
+        .map((pnd) => {
+          const pndId = pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null);
+          const snap = pndId ? idToProduct.get(String(pndId)) : undefined;
+          return {
+            part_name_id_name: pnd.part_name_id_name.trim(),
+            tolerances: Array.isArray(pnd.tolerances) ? pnd.tolerances : [],
+            quantities: Array.isArray(pnd.quantities) ? pnd.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
+            comments: Array.isArray(pnd.comments) ? pnd.comments : [],
+            product_snapshot: snap,
+          };
+        })
+    : [];
+
+  // Filter out empty raw_materials entries (where raw_material_id is empty)
+  const filteredRawMaterials = processedRawMaterials.filter((rm) => rm.raw_material_id);
+
   const bom = await BOM.findByIdAndUpdate(
     _id,
     {
+      bom_type: data.bom_type && (data.bom_type === "compound" || data.bom_type === "part-name") ? data.bom_type : undefined,
       compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
       compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
+      compound_weight: typeof data.compound_weight === "string" ? data.compound_weight : undefined,
       part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
       hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
-      part_name_details: Array.isArray(data.part_name_details)
-        ? data.part_name_details.map((pnd) => {
-            const pndId = pnd.part_name_id || (typeof pnd.part_name_id_name === "string" ? pnd.part_name_id_name.split("-")[0] : null);
-            const snap = pndId ? idToProduct.get(String(pndId)) : undefined;
-            return {
-              part_name_id_name: pnd.part_name_id_name || "",
-              tolerances: Array.isArray(pnd.tolerances) ? pnd.tolerances : [],
-              quantities: Array.isArray(pnd.quantities) ? pnd.quantities.map(q => Number(q)).filter(q => !isNaN(q)) : [],
-              comments: Array.isArray(pnd.comments) ? pnd.comments : [],
-              product_snapshot: snap,
-            };
-          })
-        : [],
-      raw_materials: processedRawMaterials,
+      part_name_details: filteredPartNameDetails,
+      raw_materials: filteredRawMaterials,
       processes: Array.isArray(data.processes)
         ? data.processes.filter((p) => typeof p === "string" && p.trim() !== "")
         : [],
