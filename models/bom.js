@@ -18,6 +18,17 @@ const bomSchema = new Schema(
     compound_codes: [String],    // Single compound name (requested)
     compound_name: { type: String },
     compound_weight: { type: String },
+    compounds: [
+      new Schema(
+        {
+          compound_id: { type: Schema.Types.ObjectId, ref: "Product" },
+          compound_name: { type: String },
+          compound_code: { type: String },
+          hardness: { type: String },
+        },
+        { _id: false }
+      ),
+    ],
     part_names: [String],
     hardnesses: [String],
 

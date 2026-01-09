@@ -81,12 +81,25 @@ exports.create = TryCatch(async (req, res) => {
   // Filter out empty raw_materials entries (where raw_material_id is empty)
   const filteredRawMaterials = processedRawMaterials.filter((rm) => rm.raw_material_id);
 
+  // Process compounds array
+  const processedCompounds = Array.isArray(data.compounds)
+    ? data.compounds
+        .filter((c) => (c.compound_id || c.compound_name) && (c.compound_id?.trim() !== "" || c.compound_name?.trim() !== ""))
+        .map((c) => ({
+          compound_id: c.compound_id || undefined,
+          compound_name: c.compound_name || "",
+          compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
+          hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
+        }))
+    : [];
+
   const bom = await BOM.create({
     bom_id: bomId,
     bom_type: data.bom_type && (data.bom_type === "compound" || data.bom_type === "part-name") ? data.bom_type : undefined,
     compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
     compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
     compound_weight: typeof data.compound_weight === "string" ? data.compound_weight : undefined,
+    compounds: processedCompounds,
     part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
     hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
     part_name_details: filteredPartNameDetails,
@@ -166,6 +179,10 @@ exports.all = TryCatch(async (req, res) => {
     .populate({
       path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
+    })
+    .populate({
+      path: "compounds.compound_id",
+      select: "name product_id",
     });
 
   // Get total count for pagination info
@@ -191,6 +208,10 @@ exports.details = TryCatch(async (req, res) => {
     .populate({
       path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
+    })
+    .populate({
+      path: "compounds.compound_id",
+      select: "name product_id",
     });
   if (!bom) throw new ErrorHandler("BOM not found", 404);
   res.status(200).json({ status: 200, success: true, bom });
@@ -252,6 +273,18 @@ exports.update = TryCatch(async (req, res) => {
   // Filter out empty raw_materials entries (where raw_material_id is empty)
   const filteredRawMaterials = processedRawMaterials.filter((rm) => rm.raw_material_id);
 
+  // Process compounds array
+  const processedCompounds = Array.isArray(data.compounds)
+    ? data.compounds
+        .filter((c) => (c.compound_id || c.compound_name) && (c.compound_id?.trim() !== "" || c.compound_name?.trim() !== ""))
+        .map((c) => ({
+          compound_id: c.compound_id || undefined,
+          compound_name: c.compound_name || "",
+          compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
+          hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
+        }))
+    : [];
+
   const bom = await BOM.findByIdAndUpdate(
     _id,
     {
@@ -259,6 +292,7 @@ exports.update = TryCatch(async (req, res) => {
       compound_codes: Array.isArray(data.compound_codes) ? data.compound_codes.filter(c => c && c.trim() !== "") : [],
       compound_name: typeof data.compound_name === "string" ? data.compound_name : undefined,
       compound_weight: typeof data.compound_weight === "string" ? data.compound_weight : undefined,
+      compounds: processedCompounds,
       part_names: Array.isArray(data.part_names) ? data.part_names.filter(p => p && p.trim() !== "") : [],
       hardnesses: Array.isArray(data.hardnesses) ? data.hardnesses.filter(h => h && h.trim() !== "") : [],
       part_name_details: filteredPartNameDetails,
