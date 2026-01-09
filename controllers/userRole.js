@@ -14,8 +14,7 @@ exports.create = TryCatch(async (req, res) => {
   // If inventory is selected, automatically add inventory sub-modules
   if (permis?.includes("inventory")) {
     const inventoryModules = ["raw material", "part name", "compound name"];
-    // Add inventory modules that aren't already in permissions
-    inventoryModules.forEach(module => {
+    inventoryModules.forEach((module) => {
       if (!permis.includes(module)) {
         data.push(module);
       }
@@ -67,6 +66,7 @@ exports.create = TryCatch(async (req, res) => {
 });
 exports.edit = TryCatch(async (req, res) => {
   const { _id, role, description, permissions } = req.body;
+  console.log(req.body);
 
   if (!_id) {
     throw new ErrorHandler("_id is a required field", 400);
@@ -77,12 +77,12 @@ exports.edit = TryCatch(async (req, res) => {
     throw new ErrorHandler("User role not found", 400);
   }
 
+
   // Handle inventory permissions
   let finalPermissions = permissions || [];
   if (finalPermissions.includes("inventory")) {
     const inventoryModules = ["raw material", "part name", "compound name"];
-    // Add inventory modules that aren't already in permissions
-    inventoryModules.forEach(module => {
+    inventoryModules.forEach((module) => {
       if (!finalPermissions.includes(module)) {
         finalPermissions.push(module);
       }
@@ -115,8 +115,14 @@ exports.edit = TryCatch(async (req, res) => {
 
   try {
     const roleUpdated = await UserRole.findByIdAndUpdate(
-      { _id },
-      { $set: { role: trimmedRoleName, description, permissions: finalPermissions } },
+       _id ,
+      {
+        $set: {
+          role: trimmedRoleName,
+          description,
+          permissions: finalPermissions,
+        },
+      },
       { new: true }
     );
 
