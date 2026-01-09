@@ -32,7 +32,6 @@ exports.create = TryCatch(async (req, res) => {
     ...productDetails,
     name: capitalizeWords(productDetails.name),
     product_id: generatedId,
-    approved: req.user.isSuper,
   });
   console.log(product);
   res.status(200).json({
@@ -69,7 +68,7 @@ exports.update = TryCatch(async (req, res) => {
       ...productDetails,
       name: capitalizeWords(productDetails.name),
       product_id: newProductId,
-      approved: req.user.isSuper ? productDetails?.approved : false,
+      
     },
     { new: true }
   );
@@ -145,13 +144,12 @@ exports.all = TryCatch(async (req, res) => {
   let products;
   if (category) {
     products = await Product.find({
-      approved: true,
       inventory_category: category,
     })
       .sort({ updatedAt: -1 })
       .populate("store");
   } else {
-    products = await Product.find({ approved: true })
+    products = await Product.find()
       .sort({ updatedAt: -1 })
       .populate("store")
       .skip(skip)

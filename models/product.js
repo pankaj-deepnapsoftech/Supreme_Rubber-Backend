@@ -70,10 +70,6 @@ const productSchema = new Schema(
     min_stock: Number,
     max_stock: Number,
     hsn_code: String,
-    approved: {
-      type: Boolean,
-      default: false,
-    },
     color_name:{
       type:String,
     },
