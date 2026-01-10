@@ -133,38 +133,37 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const { category } = req.query;
+  const LIMIT_PER_CATEGORY = 10;
 
-  const page = parseInt(req.query.page);
-  const limit = parseInt(req.query.limit);
-  const skip = (page - 1) * limit;
-  const total = await Product.countDocuments()
+  const data = await Product.aggregate([
+    { $sort: { updatedAt: -1 } },
+    {
+      $group: {
+        _id: "$category",
+        products: { $push: "$$ROOT" },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        category: "$_id",
+        products: { $slice: ["$products", LIMIT_PER_CATEGORY] },
+      },
+    },
+  ]);
 
-
-  let products;
-  if (category) {
-    products = await Product.find({
-      inventory_category: category,
-    })
-      .sort({ updatedAt: -1 })
-      .populate("store");
-  } else {
-    products = await Product.find()
-      .sort({ updatedAt: -1 })
-      .populate("store")
-      .skip(skip)
-      .limit(limit)
-  }
+  // Populate store field
+  await Product.populate(data, {
+    path: "products.store",
+  });
 
   res.status(200).json({
-    status: 200,
     success: true,
-    products,
-    page,
-    limit,
-    total
+    count: data.length,
+    data,
   });
 });
+
 // exports.unapproved = TryCatch(async (req, res) => {
 //   const unapprovedProducts = await Product.find({ approved: false }).sort({
 //     updatedAt: -1,
