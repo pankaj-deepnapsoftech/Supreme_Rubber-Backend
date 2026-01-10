@@ -90,6 +90,7 @@ exports.create = TryCatch(async (req, res) => {
           compound_name: c.compound_name || "",
           compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
           hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
+          weight: c.weight || "",
         }))
     : [];
 
@@ -131,6 +132,10 @@ exports.create = TryCatch(async (req, res) => {
       });
 
       if (!existingCompound) {
+        const hardnessValue = Array.isArray(data.hardnesses) && data.hardnesses.length > 0 
+          ? data.hardnesses[0].trim() 
+          : (typeof data.hardness === "string" ? data.hardness.trim() : undefined);
+        
         await Product.create({
           name: capitalizeWords(data.compound_name.trim()),
           category: compoundCategory,
@@ -140,8 +145,20 @@ exports.create = TryCatch(async (req, res) => {
           price: 0,
           item_type: "Buy",
           weight: typeof data.compound_weight === "string" ? data.compound_weight.trim() : undefined,
+          hardness: hardnessValue,
           approved: req.user?.isSuper || false,
         });
+      } else {
+        // Update existing compound with hardness if provided
+        const hardnessValue = Array.isArray(data.hardnesses) && data.hardnesses.length > 0 
+          ? data.hardnesses[0].trim() 
+          : (typeof data.hardness === "string" ? data.hardness.trim() : undefined);
+        
+        if (hardnessValue) {
+          await Product.findByIdAndUpdate(existingCompound._id, {
+            hardness: hardnessValue,
+          });
+        }
       }
     } catch (error) {
       console.error("Error creating compound product:", error);
@@ -282,6 +299,7 @@ exports.update = TryCatch(async (req, res) => {
           compound_name: c.compound_name || "",
           compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
           hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
+          weight: c.weight || "",
         }))
     : [];
 
@@ -311,6 +329,38 @@ exports.update = TryCatch(async (req, res) => {
     },
     { new: true }
   );
+
+  // If bom_type is "compound" and compound_name exists, update compound product hardness
+  if (data.bom_type === "compound" && data.compound_name && typeof data.compound_name === "string" && data.compound_name.trim() !== "") {
+    try {
+      const compoundCategory = "Compound Name";
+      const existingCompound = await Product.findOne({ 
+        name: capitalizeWords(data.compound_name.trim()),
+        category: compoundCategory 
+      });
+
+      if (existingCompound) {
+        const hardnessValue = Array.isArray(data.hardnesses) && data.hardnesses.length > 0 
+          ? data.hardnesses[0].trim() 
+          : (typeof data.hardness === "string" ? data.hardness.trim() : undefined);
+        
+        const updateData = {};
+        if (typeof data.compound_weight === "string" && data.compound_weight.trim()) {
+          updateData.weight = data.compound_weight.trim();
+        }
+        if (hardnessValue) {
+          updateData.hardness = hardnessValue;
+        }
+        
+        if (Object.keys(updateData).length > 0) {
+          await Product.findByIdAndUpdate(existingCompound._id, updateData);
+        }
+      }
+    } catch (error) {
+      console.error("Error updating compound product:", error);
+      // Don't throw error, just log it - BOM is already updated
+    }
+  }
   if (!bom) throw new ErrorHandler("BOM not found", 404);
   res.status(200).json({ status: 200, success: true, message: "BOM updated", bom });
 });

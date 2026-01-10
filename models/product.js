@@ -104,6 +104,9 @@ const productSchema = new Schema(
     weight: {
       type: String,
     },
+    hardness: {
+      type: String,
+    },
     store: {
       type: Schema.Types.ObjectId,
       ref: "Store",

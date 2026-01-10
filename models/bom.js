@@ -25,6 +25,7 @@ const bomSchema = new Schema(
           compound_name: { type: String },
           compound_code: { type: String },
           hardness: { type: String },
+          weight: { type: String },
         },
         { _id: false }
       ),
