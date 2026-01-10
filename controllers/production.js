@@ -193,7 +193,7 @@ exports.details = TryCatch(async (req, res) => {
     .populate({
       path: "bom",
       select:
-        "bom_id compound_name compound_code rawMaterials compoundingStandards processes",
+        "bom_id bom_type compound_name compound_code compound_codes compound_weight compounds raw_materials part_names part_name_details hardnesses processes accelerators rawMaterials compoundingStandards",
     })
     .populate({
       path: "raw_materials.raw_material_id",
@@ -203,6 +203,18 @@ exports.details = TryCatch(async (req, res) => {
       path: "createdBy",
       select: "name email",
     });
+
+  // Populate nested fields in BOM after BOM is populated
+  if (production && production.bom) {
+    await production.populate({
+      path: "bom.compounds.compound_id",
+      select: "name product_id",
+    });
+    await production.populate({
+      path: "bom.raw_materials.raw_material_id",
+      select: "name product_id uom category current_stock",
+    });
+  }
 
   if (!production) throw new ErrorHandler("Production not found", 404);
   res.status(200).json({ status: 200, success: true, production });
