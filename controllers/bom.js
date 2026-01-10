@@ -373,6 +373,119 @@ exports.remove = TryCatch(async (req, res) => {
   res.status(200).json({ status: 200, success: true, message: "BOM deleted" });
 });
 
+// Get compound-wise part names count
+exports.compoundPartNames = TryCatch(async (req, res) => {
+  // Get all BOMs with part names
+  const boms = await BOM.find({
+    $or: [
+      { part_names: { $exists: true, $ne: [], $not: { $size: 0 } } },
+      { part_name_details: { $exists: true, $ne: [], $not: { $size: 0 } } },
+    ],
+  })
+    .populate({
+      path: "compounds.compound_id",
+      select: "name product_id",
+    })
+    .select("bom_type compound_name compounds part_names part_name_details");
+
+  // Map to store compound -> part names
+  const compoundPartNamesMap = {};
+
+  boms.forEach((bom) => {
+    // Extract part names from BOM
+    const partNames = new Set();
+
+    // Get part names from part_name_details first
+    if (bom.part_name_details && Array.isArray(bom.part_name_details)) {
+      bom.part_name_details.forEach((detail) => {
+        if (detail.product_snapshot && detail.product_snapshot.name) {
+          partNames.add(detail.product_snapshot.name.trim());
+        } else if (detail.part_name_id_name) {
+          const parts = detail.part_name_id_name.split("-");
+          if (parts.length > 1) {
+            partNames.add(parts.slice(1).join("-").trim());
+          } else {
+            partNames.add(detail.part_name_id_name.trim());
+          }
+        }
+      });
+    }
+
+    // Fallback to part_names array
+    if (partNames.size === 0 && bom.part_names && Array.isArray(bom.part_names)) {
+      bom.part_names.forEach((pn) => {
+        if (pn && pn.trim()) {
+          partNames.add(pn.trim());
+        }
+      });
+    }
+
+    // For compound BOMs - use compound_name
+    if (bom.bom_type === "compound" && bom.compound_name) {
+      const compoundName = bom.compound_name.trim();
+      if (!compoundPartNamesMap[compoundName]) {
+        compoundPartNamesMap[compoundName] = {
+          count: 0,
+          partNames: [],
+        };
+      }
+      partNames.forEach((pn) => {
+        if (!compoundPartNamesMap[compoundName].partNames.includes(pn)) {
+          compoundPartNamesMap[compoundName].partNames.push(pn);
+          compoundPartNamesMap[compoundName].count++;
+        }
+      });
+    }
+
+    // For part-name BOMs - use compounds array
+    if (bom.bom_type === "part-name" && bom.compounds && Array.isArray(bom.compounds)) {
+      bom.compounds.forEach((compound) => {
+        const compoundName =
+          (compound.compound_id && compound.compound_id.name
+            ? compound.compound_id.name
+            : compound.compound_name) || "";
+        
+        if (compoundName.trim()) {
+          const trimmedName = compoundName.trim();
+          if (!compoundPartNamesMap[trimmedName]) {
+            compoundPartNamesMap[trimmedName] = {
+              count: 0,
+              partNames: [],
+            };
+          }
+          partNames.forEach((pn) => {
+            if (!compoundPartNamesMap[trimmedName].partNames.includes(pn)) {
+              compoundPartNamesMap[trimmedName].partNames.push(pn);
+              compoundPartNamesMap[trimmedName].count++;
+            }
+          });
+        }
+      });
+    }
+  });
+
+  // Convert to array format for easier frontend consumption
+  const result = Object.keys(compoundPartNamesMap).map((compoundName) => ({
+    compoundName,
+    count: compoundPartNamesMap[compoundName].count,
+    partNames: compoundPartNamesMap[compoundName].partNames,
+  }));
+
+  // Create a normalized map (lowercase keys) for case-insensitive matching
+  const normalizedMap = {};
+  Object.keys(compoundPartNamesMap).forEach((key) => {
+    normalizedMap[key.toLowerCase()] = compoundPartNamesMap[key];
+  });
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    data: result,
+    map: compoundPartNamesMap, // Original map with original case
+    normalizedMap: normalizedMap, // Normalized map for case-insensitive matching
+  });
+});
+
 // Lookup BOM data by product code to auto-fill uom and category
 exports.lookup = TryCatch(async (req, res) => {
   const code = (req.query.code || "").trim();
