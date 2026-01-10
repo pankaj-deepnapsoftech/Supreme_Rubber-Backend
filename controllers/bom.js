@@ -529,4 +529,121 @@ exports.lookup = TryCatch(async (req, res) => {
   });
 });
 
+// Get all unique part names from BOM table
+exports.getPartNames = TryCatch(async (req, res) => {
+  // Get all BOMs with part names
+  const boms = await BOM.find({
+    $or: [
+      { part_names: { $exists: true, $ne: [], $not: { $size: 0 } } },
+      { part_name_details: { $exists: true, $ne: [], $not: { $size: 0 } } },
+    ],
+  })
+    .select("part_names part_name_details");
+
+  // Collect all unique part names
+  const partNameSet = new Set();
+
+  boms.forEach((bom) => {
+    // Get part names from part_name_details first (preferred source)
+    if (bom.part_name_details && Array.isArray(bom.part_name_details)) {
+      bom.part_name_details.forEach((detail) => {
+        if (detail.product_snapshot && detail.product_snapshot.name) {
+          partNameSet.add(detail.product_snapshot.name.trim());
+        } else if (detail.part_name_id_name) {
+          const parts = detail.part_name_id_name.split("-");
+          if (parts.length > 1) {
+            // Remove the ID prefix and keep the name
+            partNameSet.add(parts.slice(1).join("-").trim());
+          } else {
+            partNameSet.add(detail.part_name_id_name.trim());
+          }
+        }
+      });
+    }
+
+    // Fallback to part_names array
+    if (bom.part_names && Array.isArray(bom.part_names)) {
+      bom.part_names.forEach((pn) => {
+        if (pn && pn.trim()) {
+          partNameSet.add(pn.trim());
+        }
+      });
+    }
+  });
+
+  // Convert to sorted array
+  const partNames = Array.from(partNameSet).sort();
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    partNames,
+    count: partNames.length,
+  });
+});
+
+// Get BOM details by part name for auto-filling production form
+exports.getBomByPartName = TryCatch(async (req, res) => {
+  const partName = (req.query.part_name || "").trim();
+  if (!partName) throw new ErrorHandler("Please provide part_name query param", 400);
+
+  // Find BOM that contains this part name
+  const bom = await BOM.findOne({
+    $or: [
+      { part_names: { $regex: partName, $options: "i" } },
+      { "part_name_details.part_name_id_name": { $regex: partName, $options: "i" } },
+      { "part_name_details.product_snapshot.name": { $regex: partName, $options: "i" } },
+    ],
+  })
+    .populate({
+      path: "raw_materials.raw_material_id",
+      select: "uom category current_stock name product_id",
+    })
+    .populate({
+      path: "compounds.compound_id",
+      select: "name product_id",
+    });
+
+  if (!bom) throw new ErrorHandler("BOM not found for this part name", 404);
+
+  // Find the matching part name detail
+  let matchingPartDetail = null;
+  if (bom.part_name_details && Array.isArray(bom.part_name_details)) {
+    matchingPartDetail = bom.part_name_details.find((detail) => {
+      if (detail.product_snapshot && detail.product_snapshot.name) {
+        return detail.product_snapshot.name.toLowerCase() === partName.toLowerCase();
+      }
+      if (detail.part_name_id_name) {
+        const parts = detail.part_name_id_name.split("-");
+        const name = parts.length > 1 ? parts.slice(1).join("-") : detail.part_name_id_name;
+        return name.toLowerCase() === partName.toLowerCase();
+      }
+      return false;
+    });
+  }
+
+  // If not found in details, check part_names array
+  if (!matchingPartDetail && bom.part_names && Array.isArray(bom.part_names)) {
+    const foundPartName = bom.part_names.find(
+      (pn) => pn && pn.toLowerCase() === partName.toLowerCase()
+    );
+    if (foundPartName) {
+      // Create a basic part detail structure
+      matchingPartDetail = {
+        part_name_id_name: foundPartName,
+        quantities: [],
+        tolerances: [],
+        comments: [],
+      };
+    }
+  }
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    bom,
+    partDetail: matchingPartDetail,
+  });
+});
+
 
