@@ -80,7 +80,8 @@ exports.update = TryCatch(async (req, res) => {
     id,
     { role, isSuper: false },
     { new: true }
-  );
+  ).populate("role");
+  
   if (!user) {
     throw new ErrorHandler("User doesn't exist", 400);
   }
