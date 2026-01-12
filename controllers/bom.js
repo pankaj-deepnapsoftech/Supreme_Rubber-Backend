@@ -91,9 +91,6 @@ exports.create = TryCatch(async (req, res) => {
           compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
           hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
           weight: c.weight || "",
-          stock: c.stock || "",
-          used_stock: c.used_stock || "",
-          remaining_stock: c.remaining_stock || "",
         }))
     : [];
 
@@ -170,69 +167,6 @@ exports.create = TryCatch(async (req, res) => {
   }
 
 
-  // Update inventory stock for compounds based on remaining_stock
-  if (processedCompounds && processedCompounds.length > 0) {
-    for (const compound of processedCompounds) {
-      if (compound.compound_id && compound.remaining_stock) {
-        try {
-          const remainingStock = parseFloat(compound.remaining_stock);
-          if (!isNaN(remainingStock) && remainingStock >= 0) {
-            await Product.findByIdAndUpdate(
-              compound.compound_id,
-              {
-                current_stock: remainingStock,
-                updated_stock: remainingStock,
-                change_type: "decrease",
-                quantity_changed: parseFloat(compound.used_stock || 0),
-                last_change: {
-                  changed_on: new Date(),
-                  change_type: "decrease",
-                  qty: parseFloat(compound.used_stock || 0),
-                  reason: `BOM created/updated - Stock updated to remaining stock`,
-                },
-              },
-              { new: true }
-            );
-          }
-        } catch (error) {
-          console.error(`Error updating inventory for compound ${compound.compound_id}:`, error);
-          // Continue with other compounds even if one fails
-        }
-      }
-    }
-  }
-
-  // Update inventory stock for compounds based on remaining_stock
-  if (processedCompounds && processedCompounds.length > 0) {
-    for (const compound of processedCompounds) {
-      if (compound.compound_id && compound.remaining_stock) {
-        try {
-          const remainingStock = parseFloat(compound.remaining_stock);
-          if (!isNaN(remainingStock) && remainingStock >= 0) {
-            await Product.findByIdAndUpdate(
-              compound.compound_id,
-              {
-                current_stock: remainingStock,
-                updated_stock: remainingStock,
-                change_type: "decrease",
-                quantity_changed: parseFloat(compound.used_stock || 0),
-                last_change: {
-                  changed_on: new Date(),
-                  change_type: "decrease",
-                  qty: parseFloat(compound.used_stock || 0),
-                  reason: `BOM created - Stock updated to remaining stock`,
-                },
-              },
-              { new: true }
-            );
-          }
-        } catch (error) {
-          console.error(`Error updating inventory for compound ${compound.compound_id}:`, error);
-          // Continue with other compounds even if one fails
-        }
-      }
-    }
-  }
 
   res.status(200).json({
     status: 200,
@@ -367,9 +301,6 @@ exports.update = TryCatch(async (req, res) => {
           compound_code: c.compound_code || (Array.isArray(c.compound_codes) && c.compound_codes.length > 0 ? c.compound_codes[0] : ""),
           hardness: c.hardness || (Array.isArray(c.hardnesses) && c.hardnesses.length > 0 ? c.hardnesses[0] : ""),
           weight: c.weight || "",
-          stock: c.stock || "",
-          used_stock: c.used_stock || "",
-          remaining_stock: c.remaining_stock || "",
         }))
     : [];
 
@@ -432,38 +363,6 @@ exports.update = TryCatch(async (req, res) => {
     }
   }
   if (!bom) throw new ErrorHandler("BOM not found", 404);
-
-  // Update inventory stock for compounds based on remaining_stock
-  if (processedCompounds && processedCompounds.length > 0) {
-    for (const compound of processedCompounds) {
-      if (compound.compound_id && compound.remaining_stock) {
-        try {
-          const remainingStock = parseFloat(compound.remaining_stock);
-          if (!isNaN(remainingStock) && remainingStock >= 0) {
-            await Product.findByIdAndUpdate(
-              compound.compound_id,
-              {
-                current_stock: remainingStock,
-                updated_stock: remainingStock,
-                change_type: "decrease",
-                quantity_changed: parseFloat(compound.used_stock || 0),
-                last_change: {
-                  changed_on: new Date(),
-                  change_type: "decrease",
-                  qty: parseFloat(compound.used_stock || 0),
-                  reason: `BOM updated - Stock updated to remaining stock`,
-                },
-              },
-              { new: true }
-            );
-          }
-        } catch (error) {
-          console.error(`Error updating inventory for compound ${compound.compound_id}:`, error);
-          // Continue with other compounds even if one fails
-        }
-      }
-    }
-  }
 
   res.status(200).json({ status: 200, success: true, message: "BOM updated", bom });
 });
