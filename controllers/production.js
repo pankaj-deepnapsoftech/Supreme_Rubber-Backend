@@ -14,6 +14,10 @@ exports.create = TryCatch(async (req, res) => {
     .populate({
       path: "raw_materials.raw_material_id",
       select: "uom category current_stock name product_id",
+    })
+    .populate({
+      path: "compounds.compound_id",
+      select: "uom category current_stock name product_id",
     });
 
   if (!bom) throw new ErrorHandler("BOM not found", 404);
@@ -127,22 +131,154 @@ exports.create = TryCatch(async (req, res) => {
       : "pending";
   }
 
-  const production = await Production.create({
-    bom: data.bom,
-    part_names: partNames,
-    raw_materials: rawMaterials,
-    processes: processes,
-    accelerators: accelerators,
-    status: data.status || derivedStatus,
-    createdBy: req.user?._id,
-  });
+  // Start MongoDB transaction for atomicity
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  res.status(200).json({
-    status: 200,
-    success: true,
-    message: "Production created successfully",
-    production,
-  });
+  try {
+    // Validate stock availability and decrease inventory
+    const stockErrors = [];
+
+    // 1. Decrease raw materials stock
+    for (const rm of rawMaterials) {
+      if (!rm.raw_material_id) continue;
+      
+      const rawMaterialId = typeof rm.raw_material_id === "object"
+        ? rm.raw_material_id._id || rm.raw_material_id
+        : rm.raw_material_id;
+      
+      const usedQty = parseFloat(rm.used_qty || rm.est_qty || 0);
+      if (usedQty <= 0) continue;
+
+      const product = await Product.findById(rawMaterialId).session(session);
+      
+      if (!product) {
+        stockErrors.push(`Raw material product not found: ${rm.raw_material_name || rawMaterialId}`);
+        continue;
+      }
+
+      const currentStock = Number(product.current_stock) || 0;
+      if (currentStock < usedQty) {
+        stockErrors.push(`Insufficient stock for ${product.name}. Available: ${currentStock}, Required: ${usedQty}`);
+        continue;
+      }
+
+      const newStock = Math.max(currentStock - usedQty, 0);
+      
+      await Product.findByIdAndUpdate(
+        product._id,
+        {
+          current_stock: newStock,
+          updated_stock: newStock,
+          change_type: "decrease",
+          quantity_changed: usedQty,
+          last_change: {
+            changed_on: new Date(),
+            change_type: "decrease",
+            qty: usedQty,
+            reason: `Used in production start - ${partNames[0]?.compound_name || "Production"}`,
+          },
+        },
+        { new: true, session }
+      );
+    }
+
+    // 2. Decrease compounds stock (if BOM has compounds)
+    if (bom.compounds && Array.isArray(bom.compounds) && bom.compounds.length > 0) {
+      // Calculate compound quantity from part_names production quantity
+      let compoundQty = 0;
+      if (partNames && partNames.length > 0) {
+        // Use prod_qty if available, otherwise use est_qty
+        const firstPart = partNames[0];
+        compoundQty = parseFloat(firstPart.prod_qty || firstPart.est_qty || 0);
+      }
+      
+      // If no part qty, use first raw material's used_qty as fallback
+      if (compoundQty <= 0 && rawMaterials.length > 0) {
+        compoundQty = parseFloat(rawMaterials[0].used_qty || rawMaterials[0].est_qty || 0);
+      }
+      
+      for (const compound of bom.compounds) {
+        if (!compound.compound_id || compoundQty <= 0) continue;
+        
+        const compoundId = typeof compound.compound_id === "object"
+          ? compound.compound_id._id || compound.compound_id
+          : compound.compound_id;
+        
+        const usedQty = compoundQty;
+
+        const product = await Product.findById(compoundId).session(session);
+        
+        if (!product) {
+          stockErrors.push(`Compound product not found: ${compound.compound_name || compoundId}`);
+          continue;
+        }
+
+        const currentStock = Number(product.current_stock) || 0;
+        if (currentStock < usedQty) {
+          stockErrors.push(`Insufficient stock for compound ${product.name}. Available: ${currentStock}, Required: ${usedQty}`);
+          continue;
+        }
+
+        const newStock = Math.max(currentStock - usedQty, 0);
+        
+        await Product.findByIdAndUpdate(
+          product._id,
+          {
+            current_stock: newStock,
+            updated_stock: newStock,
+            change_type: "decrease",
+            quantity_changed: usedQty,
+            last_change: {
+              changed_on: new Date(),
+              change_type: "decrease",
+              qty: usedQty,
+              reason: `Used in production start - ${partNames[0]?.compound_name || "Production"}`,
+            },
+          },
+          { new: true, session }
+        );
+      }
+    }
+
+    // If there are stock errors, abort transaction
+    if (stockErrors.length > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      throw new ErrorHandler(
+        `Failed to create production. ${stockErrors.join("; ")}`,
+        400
+      );
+    }
+
+    // Create production within transaction
+    const production = await Production.create([{
+      bom: data.bom,
+      part_names: partNames,
+      raw_materials: rawMaterials,
+      processes: processes,
+      accelerators: accelerators,
+      status: data.status || derivedStatus,
+      createdBy: req.user?._id,
+    }], { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      status: 200,
+      success: true,
+      message: "Production created successfully and inventory updated",
+      production: production[0],
+    });
+  } catch (err) {
+    // Rollback transaction on error
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
+    throw err;
+  }
 });
 
 exports.all = TryCatch(async (req, res) => {
@@ -779,37 +915,39 @@ exports.approve = TryCatch(async (req, res) => {
 
     // console.log("hey", production)
  
-    for (const rm of production.raw_materials) {
-      const rawMaterialId =
-        typeof rm.raw_material_id === "object"
-          ? rm.raw_material_id
-          : rm.raw_material_id;
-          const usedQty = rm.used_qty || rm.est_qty || 0;
-          const product = await Product.findById(rawMaterialId ).session(session);
-      console.log("product", product )
+    // Raw materials are already decreased when production starts (in create function)
+    // No need to decrease again on approval
+    // for (const rm of production.raw_materials) {
+    //   const rawMaterialId =
+    //     typeof rm.raw_material_id === "object"
+    //       ? rm.raw_material_id
+    //       : rm.raw_material_id;
+    //       const usedQty = rm.used_qty || rm.est_qty || 0;
+    //       const product = await Product.findById(rawMaterialId ).session(session);
+    //   console.log("product", product )
 
-      if (product) {
-        const newStock = Math.max(product.current_stock - usedQty, 0);
+    //   if (product) {
+    //     const newStock = Math.max(product.current_stock - usedQty, 0);
 
-        await Product.findByIdAndUpdate(
-          product._id,
-          {
-            current_stock: newStock,
-            updated_stock: newStock,
-            change_type: "decrease",
-            quantity_changed: usedQty,
-            last_change: {
-              production_id: production.production_id,
-              changed_on: new Date(),
-              change_type: "decrease",
-              qty: usedQty,
-              reason: `Used in production of ${production.part_names[0].compound_name}`,
-            },
-          },
-          { new: true, session }
-        );
-      }
-    }
+    //     await Product.findByIdAndUpdate(
+    //       product._id,
+    //       {
+    //         current_stock: newStock,
+    //         updated_stock: newStock,
+    //         change_type: "decrease",
+    //         quantity_changed: usedQty,
+    //         last_change: {
+    //           production_id: production.production_id,
+    //           changed_on: new Date(),
+    //           change_type: "decrease",
+    //           qty: usedQty,
+    //           reason: `Used in production of ${production.part_names[0].compound_name}`,
+    //         },
+    //       },
+    //       { new: true, session }
+    //     );
+    //   }
+    // }
 
     await session.commitTransaction();
     session.endSession();
