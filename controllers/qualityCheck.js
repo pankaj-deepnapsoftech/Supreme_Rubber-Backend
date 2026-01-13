@@ -106,8 +106,9 @@ const getAllQualityChecks = async (req, res) => {
 
 const createQualityCheck = async (req, res) => {
   try {
-    const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
-    
+    const BASE_URL =
+      process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
     // Handle file upload if present
     const reportFile = req.files?.attached_report?.[0];
     const attached_report = reportFile
@@ -216,30 +217,38 @@ const createQualityCheck = async (req, res) => {
         if (inventoryProduct) {
           // Compute new stock values
           const newStock = inventoryProduct.current_stock + approved_quantity;
-          const newRejectStock = inventoryProduct.reject_stock + rejected_quantity;
+          const newRejectStock =
+            inventoryProduct.reject_stock + rejected_quantity;
 
-          // Update product document
+          // Update product document with last_change tracking
           await Product.findByIdAndUpdate(inventoryProduct._id, {
             current_stock: newStock,
             updated_stock: newStock,
             reject_stock: newRejectStock,
             change_type: approved_quantity > 0 ? "increase" : "no_change",
             quantity_changed: approved_quantity,
+            last_change: {
+              changed_on: new Date(),
+              change_type: "increase",
+              qty: approved_quantity,
+              reason: `Quality check approved - ${gatemanItem.item_name} from ${gatemanEntry.po_number}`,
+            },
           });
 
           console.log(
             `Inventory updated: ${gatemanItem.item_name} - Approved: +${approved_quantity}, Rejected: +${rejected_quantity}, New stock: ${newStock}, Reject stock: ${newRejectStock}`
           );
         } else {
-          console.log(`Product not found in inventory: ${gatemanItem.item_name}`);
+          console.log(
+            `Product not found in inventory: ${gatemanItem.item_name}`
+          );
         }
       } catch (inventoryError) {
         console.error("Error updating inventory:", inventoryError);
         // Continue execution even if inventory update fails
       }
-
     }
-  
+
     const populatedQualityCheck = await QualityCheck.findById(
       savedQualityCheck._id
     )
@@ -380,6 +389,12 @@ const deleteQualityCheck = async (req, res) => {
             updated_stock: newStock,
             change_type: "decrease",
             quantity_changed: qualityCheck.approved_quantity,
+            last_change: {
+              changed_on: new Date(),
+              change_type: "decrease",
+              qty: qualityCheck.approved_quantity,
+              reason: `Quality check deleted - ${qualityCheck.item_name} (removed ${qualityCheck.approved_quantity} units)`,
+            },
           });
 
           console.log(
@@ -410,8 +425,9 @@ const deleteQualityCheck = async (req, res) => {
 const updateQualityCheck = async (req, res) => {
   try {
     const { id } = req.params;
-    const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
-    
+    const BASE_URL =
+      process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
     // Handle file upload if present
     const reportFile = req.files?.attached_report?.[0];
     const attached_report = reportFile
@@ -482,7 +498,7 @@ const updateQualityCheck = async (req, res) => {
       rejected_quantity,
       total_quantity: approved_quantity + rejected_quantity,
     };
-    
+
     // Only update attached_report if a new file was uploaded
     if (attached_report !== undefined) {
       updateData.attached_report = attached_report;
@@ -513,6 +529,17 @@ const updateQualityCheck = async (req, res) => {
             change_type:
               approvedQuantityDifference > 0 ? "increase" : "decrease",
             quantity_changed: Math.abs(approvedQuantityDifference),
+            last_change: {
+              changed_on: new Date(),
+              change_type:
+                approvedQuantityDifference > 0 ? "increase" : "decrease",
+              qty: Math.abs(approvedQuantityDifference),
+              reason: `Quality check updated - ${gatemanItem.item_name} from ${
+                gatemanEntry.po_number
+              } (${
+                approvedQuantityDifference > 0 ? "increased" : "decreased"
+              } by ${Math.abs(approvedQuantityDifference)})`,
+            },
           });
 
           console.log(
