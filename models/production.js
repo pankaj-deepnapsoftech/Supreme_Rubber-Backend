@@ -60,6 +60,19 @@ const acceleratorSchema = new Schema(
   { _id: false }
 );
 
+const compoundDetailSchema = new Schema(
+  {
+    compound_id: String,
+    compound_name: String,
+    compound_code: String,
+    hardness: String,
+    weight: { type: Number, default: 0 },
+    used_qty: { type: Number, default: 0 },
+    remain_qty: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const productionSchema = new Schema(
   {
     production_id: {
@@ -89,6 +102,10 @@ const productionSchema = new Schema(
     },
     accelerators: {
       type: [acceleratorSchema],
+      default: [],
+    },
+    compound_details: {
+      type: [compoundDetailSchema],
       default: [],
     },
     status: {

@@ -127,8 +127,10 @@ exports.create = TryCatch(async (req, res) => {
     const anyStarted = processes.some(
       (p) => p.start === true || p.status === "in_progress"
     );
+    // Don't auto-complete status even when all processes are done
+    // Status should only be set to "completed" via Finish button
     derivedStatus = allDone
-      ? "completed"
+      ? "in_progress"  // Changed from "completed" to "in_progress"
       : anyStarted
       ? "in_progress"
       : "pending";
@@ -278,21 +280,30 @@ exports.create = TryCatch(async (req, res) => {
       );
     }
 
+    // Process compound_details
+    const compoundDetails = Array.isArray(data.compound_details)
+      ? data.compound_details.map((comp) => ({
+          compound_id: comp.compound_id || "",
+          compound_name: comp.compound_name || "",
+          compound_code: comp.compound_code || "",
+          hardness: comp.hardness || "",
+          weight: parseFloat(comp.weight) || 0,
+          used_qty: parseFloat(comp.used_qty) || 0,
+          remain_qty: parseFloat(comp.remain_qty) || 0,
+        }))
+      : [];
+
     // Create production within transaction
-    const production = await Production.create(
-      [
-        {
-          bom: data.bom,
-          part_names: partNames,
-          raw_materials: rawMaterials,
-          processes: processes,
-          accelerators: accelerators,
-          status: data.status || derivedStatus,
-          createdBy: req.user?._id,
-        },
-      ],
-      { session }
-    );
+    const production = await Production.create([{
+      bom: data.bom,
+      part_names: partNames,
+      raw_materials: rawMaterials,
+      processes: processes,
+      accelerators: accelerators,
+      compound_details: compoundDetails,
+      status: data.status || derivedStatus,
+      createdBy: req.user?._id,
+    }], { session });
 
     await session.commitTransaction();
     session.endSession();
@@ -412,17 +423,10 @@ exports.update = TryCatch(async (req, res) => {
       status: proc.done ? "completed" : proc.start ? "in_progress" : "pending",
     }));
 
-    const allDone = data.processes.every(
-      (p) => p.done === true || p.status === "completed"
-    );
-    const anyStarted = data.processes.some(
-      (p) => p.start === true || p.status === "in_progress"
-    );
-    data.status = allDone
-      ? "completed"
-      : anyStarted
-      ? "in_progress"
-      : "pending";
+    // Don't update production status based on processes
+    // Status should only be changed via Finish button (finishProduction endpoint)
+    // Always exclude status from update to preserve existing status
+    delete data.status;
   }
 
   if (Array.isArray(data.accelerators)) {
@@ -439,6 +443,18 @@ exports.update = TryCatch(async (req, res) => {
         comment: acc.comment || "",
       };
     });
+  }
+
+  if (Array.isArray(data.compound_details)) {
+    data.compound_details = data.compound_details.map((comp) => ({
+      compound_id: comp.compound_id || "",
+      compound_name: comp.compound_name || "",
+      compound_code: comp.compound_code || "",
+      hardness: comp.hardness || "",
+      weight: parseFloat(comp.weight) || 0,
+      used_qty: parseFloat(comp.used_qty) || 0,
+      remain_qty: parseFloat(comp.remain_qty) || 0,
+    }));
   }
 
   const production = await Production.findByIdAndUpdate(_id, data, {
@@ -1371,6 +1387,31 @@ exports.markReadyForQC = TryCatch(async (req, res) => {
     status: 200,
     success: true,
     message: "Production marked ready for QC",
+    production: updated,
+  });
+});
+
+// Finish production - mark as completed
+exports.finishProduction = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { status: "completed" },
+    { new: true }
+  )
+    .populate({
+      path: "bom",
+      select: "bom_id compound_name compound_code",
+    })
+    .populate({
+      path: "raw_materials.raw_material_id",
+      select: "name product_id uom category",
+    });
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production marked as completed",
     production: updated,
   });
 });
