@@ -1584,3 +1584,118 @@ exports.deleteQcHistory = TryCatch(async (req, res) => {
     });
   }
 });
+
+// Daily Production Records Management
+
+// Add daily production record
+exports.addDailyProductionRecord = TryCatch(async (req, res) => {
+  const { productionId } = req.params;
+  const { date, quantity_produced, notes, shift } = req.body;
+
+  if (!date || quantity_produced === undefined) {
+    throw new ErrorHandler("Date and quantity_produced are required", 400);
+  }
+
+  const production = await Production.findById(productionId);
+  if (!production) {
+    throw new ErrorHandler("Production not found", 404);
+  }
+
+  const newRecord = {
+    date: new Date(date),
+    quantity_produced: Number(quantity_produced),
+    notes: notes || "",
+    shift: shift || "morning",
+    recorded_by: req.user?._id,
+  };
+
+  production.daily_production_records.push(newRecord);
+  await production.save();
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Daily production record added successfully",
+    production,
+  });
+});
+
+// Update daily production record
+exports.updateDailyProductionRecord = TryCatch(async (req, res) => {
+  const { productionId, recordId } = req.params;
+  const { date, quantity_produced, notes, shift } = req.body;
+
+  const production = await Production.findById(productionId);
+  if (!production) {
+    throw new ErrorHandler("Production not found", 404);
+  }
+
+  const record = production.daily_production_records.id(recordId);
+  if (!record) {
+    throw new ErrorHandler("Daily production record not found", 404);
+  }
+
+  if (date) record.date = new Date(date);
+  if (quantity_produced !== undefined)
+    record.quantity_produced = Number(quantity_produced);
+  if (notes !== undefined) record.notes = notes;
+  if (shift) record.shift = shift;
+
+  await production.save();
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Daily production record updated successfully",
+    production,
+  });
+});
+
+// Delete daily production record
+exports.deleteDailyProductionRecord = TryCatch(async (req, res) => {
+  const { productionId, recordId } = req.params;
+
+  const production = await Production.findById(productionId);
+  if (!production) {
+    throw new ErrorHandler("Production not found", 404);
+  }
+
+  const record = production.daily_production_records.id(recordId);
+  if (!record) {
+    throw new ErrorHandler("Daily production record not found", 404);
+  }
+
+  record.deleteOne();
+  await production.save();
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Daily production record deleted successfully",
+    production,
+  });
+});
+
+// Get all daily production records for a production
+exports.getDailyProductionRecords = TryCatch(async (req, res) => {
+  const { productionId } = req.params;
+
+  const production = await Production.findById(productionId)
+    .select("production_id daily_production_records part_names")
+    .populate("daily_production_records.recorded_by", "name email");
+
+  if (!production) {
+    throw new ErrorHandler("Production not found", 404);
+  }
+
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    production_id: production.production_id,
+    records: production.daily_production_records,
+    total_produced: production.daily_production_records.reduce(
+      (sum, record) => sum + (record.quantity_produced || 0),
+      0
+    ),
+  });
+});

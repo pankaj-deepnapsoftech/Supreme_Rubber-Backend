@@ -42,7 +42,11 @@ const processSchema = new Schema(
     work_done: { type: Number, default: 0 },
     start: { type: Boolean, default: false },
     done: { type: Boolean, default: false },
-    status: { type: String, enum: ["pending", "in_progress", "completed"], default: "in_progress" },
+    status: {
+      type: String,
+      enum: ["pending", "in_progress", "completed"],
+      default: "in_progress",
+    },
   },
   { _id: false }
 );
@@ -71,6 +75,21 @@ const compoundDetailSchema = new Schema(
     remain_qty: { type: Number, default: 0 },
   },
   { _id: false }
+);
+
+const dailyProductionSchema = new Schema(
+  {
+    date: { type: Date, required: true },
+    quantity_produced: { type: Number, required: true, default: 0 },
+    notes: { type: String, default: "" },
+    shift: {
+      type: String,
+      enum: ["morning", "afternoon", "night"],
+      default: "morning",
+    },
+    recorded_by: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  { timestamps: true }
 );
 
 const productionSchema = new Schema(
@@ -106,6 +125,10 @@ const productionSchema = new Schema(
     },
     compound_details: {
       type: [compoundDetailSchema],
+      default: [],
+    },
+    daily_production_records: {
+      type: [dailyProductionSchema],
       default: [],
     },
     status: {
@@ -147,7 +170,9 @@ productionSchema.pre("save", async function (next) {
   if (!this.production_id) {
     const prefix = "PROD-";
     const ProductionModel = this.constructor;
-    const lastProd = await ProductionModel.findOne({ production_id: { $regex: `^${prefix}\\d{4}$` } })
+    const lastProd = await ProductionModel.findOne({
+      production_id: { $regex: `^${prefix}\\d{4}$` },
+    })
       .sort({ production_id: -1 })
       .limit(1);
     const nextNum = lastProd
@@ -160,4 +185,3 @@ productionSchema.pre("save", async function (next) {
 
 const Production = model("Production", productionSchema);
 module.exports = Production;
-

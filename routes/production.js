@@ -14,6 +14,10 @@ const {
   finishProduction,
   getQcHistory,
   deleteQcHistory,
+  addDailyProductionRecord,
+  updateDailyProductionRecord,
+  deleteDailyProductionRecord,
+  getDailyProductionRecords,
 } = require("../controllers/production");
 const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isAllowed } = require("../middlewares/isAllowed");
@@ -37,5 +41,30 @@ router.patch("/:id/approve", isAuthenticated, isAllowed, approve);
 router.patch("/:id/reject", isAuthenticated, isAllowed, reject);
 router.patch("/:id/ready-for-qc", isAuthenticated, isAllowed, markReadyForQC);
 router.patch("/:id/finish", isAuthenticated, isAllowed, finishProduction);
+
+// Daily Production Records
+router.post(
+  "/:productionId/daily-records",
+  isAuthenticated,
+  isAllowed,
+  addDailyProductionRecord
+);
+router.get(
+  "/:productionId/daily-records",
+  isAuthenticated,
+  getDailyProductionRecords
+);
+router.put(
+  "/:productionId/daily-records/:recordId",
+  isAuthenticated,
+  isAllowed,
+  updateDailyProductionRecord
+);
+router.delete(
+  "/:productionId/daily-records/:recordId",
+  isAuthenticated,
+  isAllowed,
+  deleteDailyProductionRecord
+);
 
 module.exports = router;
