@@ -457,11 +457,32 @@ exports.update = TryCatch(async (req, res) => {
   const { _id } = data;
   if (!_id) throw new ErrorHandler("Please provide production id (_id)", 400);
 
+  // Get the existing production to compare quantities
+  const existingProduction = await Production.findById(_id);
+  if (!existingProduction) throw new ErrorHandler("Production not found", 404);
+
+  let quantityChanged = false;
+  let oldQuantity = 0;
+  let newQuantity = 0;
+
   if (Array.isArray(data.part_names)) {
     data.part_names = data.part_names.map((pn) => ({
       ...pn,
       remain_qty: (pn.est_qty || 0) - (pn.prod_qty || 0),
     }));
+
+    // Check if production quantity changed
+    if (
+      existingProduction.part_names &&
+      existingProduction.part_names.length > 0
+    ) {
+      oldQuantity = existingProduction.part_names[0].prod_qty || 0;
+      newQuantity = data.part_names[0]?.prod_qty || 0;
+
+      if (oldQuantity !== newQuantity) {
+        quantityChanged = true;
+      }
+    }
   }
 
   if (Array.isArray(data.raw_materials)) {
@@ -515,6 +536,44 @@ exports.update = TryCatch(async (req, res) => {
     }));
   }
 
+  // If quantity changed, create a daily production record
+  if (quantityChanged && newQuantity > oldQuantity) {
+    const quantityProduced = newQuantity - oldQuantity;
+
+    // Check if a record already exists for today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const existingTodayRecord =
+      existingProduction.daily_production_records?.find((record) => {
+        const recordDate = new Date(record.date);
+        recordDate.setHours(0, 0, 0, 0);
+        return recordDate.getTime() === today.getTime();
+      });
+
+    if (existingTodayRecord) {
+      // Update existing today's record
+      existingTodayRecord.quantity_produced += quantityProduced;
+      existingTodayRecord.notes = `Updated: Quantity increased by ${quantityProduced}`;
+    } else {
+      // Create new daily record
+      if (!data.daily_production_records) {
+        data.daily_production_records =
+          existingProduction.daily_production_records || [];
+      }
+
+      data.daily_production_records.push({
+        date: today,
+        quantity_produced: quantityProduced,
+        notes: `Auto-recorded: Production quantity updated from ${oldQuantity} to ${newQuantity}`,
+        shift: getCurrentShift(),
+        recorded_by: req.user?._id,
+      });
+    }
+  }
+
   const production = await Production.findByIdAndUpdate(_id, data, {
     new: true,
   })
@@ -535,6 +594,14 @@ exports.update = TryCatch(async (req, res) => {
     production,
   });
 });
+
+// Helper function to determine current shift based on time
+function getCurrentShift() {
+  const hour = new Date().getHours();
+  if (hour >= 6 && hour < 14) return "morning";
+  if (hour >= 14 && hour < 22) return "afternoon";
+  return "night";
+}
 
 exports.remove = TryCatch(async (req, res) => {
   const { id } = req.body;
