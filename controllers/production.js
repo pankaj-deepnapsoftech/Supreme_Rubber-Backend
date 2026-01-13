@@ -310,7 +310,7 @@ exports.all = TryCatch(async (req, res) => {
     .limit(limit)
     .populate({
       path: "bom",
-      select: "bom_id compound_name compound_code",
+      select: "bom_id bom_type compound_name compound_code",
     })
     .populate({
       path: "raw_materials.raw_material_id",
