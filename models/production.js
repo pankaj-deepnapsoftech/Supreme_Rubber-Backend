@@ -42,7 +42,7 @@ const processSchema = new Schema(
     work_done: { type: Number, default: 0 },
     start: { type: Boolean, default: false },
     done: { type: Boolean, default: false },
-    status: { type: String, enum: ["pending", "in_progress", "completed"], default: "pending" },
+    status: { type: String, enum: ["pending", "in_progress", "completed"], default: "in_progress" },
   },
   { _id: false }
 );
@@ -111,7 +111,7 @@ const productionSchema = new Schema(
     status: {
       type: String,
       enum: ["pending", "in_progress", "completed"],
-      default: "pending",
+      default: "in_progress",
     },
     qc_status: {
       type: String,
