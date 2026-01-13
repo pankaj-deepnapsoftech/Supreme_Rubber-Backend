@@ -130,7 +130,7 @@ exports.create = TryCatch(async (req, res) => {
     // Don't auto-complete status even when all processes are done
     // Status should only be set to "completed" via Finish button
     derivedStatus = allDone
-      ? "in_progress"  // Changed from "completed" to "in_progress"
+      ? "in_progress" // Changed from "completed" to "in_progress"
       : anyStarted
       ? "in_progress"
       : "pending";
@@ -294,16 +294,21 @@ exports.create = TryCatch(async (req, res) => {
       : [];
 
     // Create production within transaction
-    const production = await Production.create([{
-      bom: data.bom,
-      part_names: partNames,
-      raw_materials: rawMaterials,
-      processes: processes,
-      accelerators: accelerators,
-      compound_details: compoundDetails,
-      status: data.status || derivedStatus,
-      createdBy: req.user?._id,
-    }], { session });
+    const production = await Production.create(
+      [
+        {
+          bom: data.bom,
+          part_names: partNames,
+          raw_materials: rawMaterials,
+          processes: processes,
+          accelerators: accelerators,
+          compound_details: compoundDetails,
+          status: data.status || derivedStatus,
+          createdBy: req.user?._id,
+        },
+      ],
+      { session }
+    );
 
     const createdProduction = production[0];
     const productionId = createdProduction.production_id;
@@ -1025,15 +1030,7 @@ exports.approve = TryCatch(async (req, res) => {
           product._id,
           {
             reject_stock: newRejectStock,
-            last_change: {
-              production_id: production.production_id,
-              changed_on: new Date(),
-              change_type: "increase",
-              qty: rejectedQty,
-              reason: `Production approval - rejected quantity for ${
-                lookupName || lookupCode
-              } (Rejected: ${rejectedQty})`,
-            },
+            // Do NOT update last_change here - only approved quantity should update last_change
           },
           { new: true, session }
         );
@@ -1129,30 +1126,33 @@ exports.approve = TryCatch(async (req, res) => {
           console.log(
             `Compound inventory updated successfully for ${compoundProduct.name}`
           );
+        }
 
-          // Update rejected quantity to reject_stock for compound
-          if (rejectedQty > 0) {
-            const currentRejectStock =
-              Number(compoundProduct.reject_stock) || 0;
-            const newRejectStock = currentRejectStock + rejectedQty;
+        // Update rejected quantity to reject_stock for compound (separate update)
+        if (compoundProduct && rejectedQty > 0) {
+          const currentRejectStock =
+            Number(compoundProduct.reject_stock) || 0;
+          const newRejectStock = currentRejectStock + rejectedQty;
 
-            console.log(
-              `Updating compound reject inventory - Product: ${compoundProduct.name}, Current Reject Stock: ${currentRejectStock}, Adding: ${rejectedQty}, New Reject Stock: ${newRejectStock}`
-            );
+          console.log(
+            `Updating compound reject inventory - Product: ${compoundProduct.name}, Current Reject Stock: ${currentRejectStock}, Adding: ${rejectedQty}, New Reject Stock: ${newRejectStock}`
+          );
 
-            await Product.findByIdAndUpdate(
-              compoundProduct._id,
-              {
-                reject_stock: newRejectStock,
-              },
-              { new: true, session }
-            );
+          await Product.findByIdAndUpdate(
+            compoundProduct._id,
+            {
+              reject_stock: newRejectStock,
+              // Do NOT update last_change here - only approved quantity should update last_change
+            },
+            { new: true, session }
+          );
 
-            console.log(
-              `Compound reject inventory updated successfully for ${compoundProduct.name}`
-            );
-          }
-        } else if (!compoundProduct) {
+          console.log(
+            `Compound reject inventory updated successfully for ${compoundProduct.name}`
+          );
+        }
+
+        if (!compoundProduct) {
           console.log(
             `Compound product not found in inventory: ${
               compoundName || compoundCode
