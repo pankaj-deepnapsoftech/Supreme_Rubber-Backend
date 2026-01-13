@@ -4,6 +4,14 @@ const { TryCatch, ErrorHandler } = require("../utils/error");
 const Product = require("../models/product");
 const { default: mongoose } = require("mongoose");
 
+// Helper function to determine current shift based on time
+function getCurrentShift() {
+  const hour = new Date().getHours();
+  if (hour >= 6 && hour < 14) return "morning";
+  if (hour >= 14 && hour < 22) return "afternoon";
+  return "night";
+}
+
 exports.create = TryCatch(async (req, res) => {
   const data = req.body;
 
@@ -359,6 +367,23 @@ exports.create = TryCatch(async (req, res) => {
       }
     }
 
+    // Create initial daily production record for the created production quantity
+    if (partNames.length > 0 && partNames[0].prod_qty > 0) {
+      const initialQuantity = partNames[0].prod_qty;
+      const now = new Date();
+
+      // Add initial daily production record
+      createdProduction.daily_production_records.push({
+        date: now,
+        quantity_produced: initialQuantity,
+        notes: `Initial production created with quantity ${initialQuantity}`,
+        shift: getCurrentShift(),
+        recorded_by: req.user?._id,
+      });
+
+      await createdProduction.save({ session });
+    }
+
     await session.commitTransaction();
     session.endSession();
 
@@ -537,41 +562,26 @@ exports.update = TryCatch(async (req, res) => {
   }
 
   // If quantity changed, create a daily production record
+  // Always create a NEW record for each update (don't accumulate)
   if (quantityChanged && newQuantity > oldQuantity) {
     const quantityProduced = newQuantity - oldQuantity;
+    const now = new Date();
 
-    // Check if a record already exists for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const existingTodayRecord =
-      existingProduction.daily_production_records?.find((record) => {
-        const recordDate = new Date(record.date);
-        recordDate.setHours(0, 0, 0, 0);
-        return recordDate.getTime() === today.getTime();
-      });
-
-    if (existingTodayRecord) {
-      // Update existing today's record
-      existingTodayRecord.quantity_produced += quantityProduced;
-      existingTodayRecord.notes = `Updated: Quantity increased by ${quantityProduced}`;
-    } else {
-      // Create new daily record
-      if (!data.daily_production_records) {
-        data.daily_production_records =
-          existingProduction.daily_production_records || [];
-      }
-
-      data.daily_production_records.push({
-        date: today,
-        quantity_produced: quantityProduced,
-        notes: `Auto-recorded: Production quantity updated from ${oldQuantity} to ${newQuantity}`,
-        shift: getCurrentShift(),
-        recorded_by: req.user?._id,
-      });
+    // Initialize daily_production_records in data if not present
+    if (!data.daily_production_records) {
+      data.daily_production_records = [
+        ...(existingProduction.daily_production_records || []),
+      ];
     }
+
+    // Always create a new record for each update
+    data.daily_production_records.push({
+      date: now, // Use current timestamp instead of midnight
+      quantity_produced: quantityProduced,
+      notes: `Production quantity updated from ${oldQuantity} to ${newQuantity}`,
+      shift: getCurrentShift(),
+      recorded_by: req.user?._id,
+    });
   }
 
   const production = await Production.findByIdAndUpdate(_id, data, {
@@ -594,14 +604,6 @@ exports.update = TryCatch(async (req, res) => {
     production,
   });
 });
-
-// Helper function to determine current shift based on time
-function getCurrentShift() {
-  const hour = new Date().getHours();
-  if (hour >= 6 && hour < 14) return "morning";
-  if (hour >= 14 && hour < 22) return "afternoon";
-  return "night";
-}
 
 exports.remove = TryCatch(async (req, res) => {
   const { id } = req.body;
