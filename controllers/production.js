@@ -305,6 +305,54 @@ exports.create = TryCatch(async (req, res) => {
       createdBy: req.user?._id,
     }], { session });
 
+    const createdProduction = production[0];
+    const productionId = createdProduction.production_id;
+
+    // Update last_change with production_id for raw materials
+    for (const rm of rawMaterials) {
+      if (!rm.raw_material_id) continue;
+
+      const rawMaterialId =
+        typeof rm.raw_material_id === "object"
+          ? rm.raw_material_id._id || rm.raw_material_id
+          : rm.raw_material_id;
+
+      const usedQty = parseFloat(rm.used_qty || rm.est_qty || 0);
+      if (usedQty <= 0) continue;
+
+      await Product.findByIdAndUpdate(
+        rawMaterialId,
+        {
+          "last_change.production_id": productionId,
+        },
+        { session }
+      );
+    }
+
+    // Update last_change with production_id for compounds
+    if (
+      bom.compounds &&
+      Array.isArray(bom.compounds) &&
+      bom.compounds.length > 0
+    ) {
+      for (const compound of bom.compounds) {
+        if (!compound.compound_id) continue;
+
+        const compoundId =
+          typeof compound.compound_id === "object"
+            ? compound.compound_id._id || compound.compound_id
+            : compound.compound_id;
+
+        await Product.findByIdAndUpdate(
+          compoundId,
+          {
+            "last_change.production_id": productionId,
+          },
+          { session }
+        );
+      }
+    }
+
     await session.commitTransaction();
     session.endSession();
 
@@ -312,7 +360,7 @@ exports.create = TryCatch(async (req, res) => {
       status: 200,
       success: true,
       message: "Production created successfully and inventory updated",
-      production: production[0],
+      production: createdProduction,
     });
   } catch (err) {
     // Rollback transaction on error
