@@ -474,7 +474,11 @@ exports.update = TryCatch(async (req, res) => {
   if (Array.isArray(data.processes)) {
     data.processes = data.processes.map((proc) => ({
       ...proc,
-      status: proc.done ? "completed" : proc.start ? "in_progress" : "in_progress",
+      status: proc.done
+        ? "completed"
+        : proc.start
+        ? "in_progress"
+        : "in_progress",
     }));
 
     // Don't update production status based on processes
@@ -1131,8 +1135,7 @@ exports.approve = TryCatch(async (req, res) => {
 
         // Update rejected quantity to reject_stock for compound (separate update)
         if (compoundProduct && rejectedQty > 0) {
-          const currentRejectStock =
-            Number(compoundProduct.reject_stock) || 0;
+          const currentRejectStock = Number(compoundProduct.reject_stock) || 0;
           const newRejectStock = currentRejectStock + rejectedQty;
 
           console.log(
