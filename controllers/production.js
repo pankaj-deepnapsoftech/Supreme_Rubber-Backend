@@ -79,7 +79,7 @@ exports.create = TryCatch(async (req, res) => {
             ? "completed"
             : proc.start
             ? "in_progress"
-            : "pending",
+            : "in_progress",
         };
       })
     : (bom.processes || [])
@@ -88,7 +88,7 @@ exports.create = TryCatch(async (req, res) => {
           work_done: 0,
           start: false,
           done: false,
-          status: "pending",
+          status: "in_progress",
         }))
         .filter((p) => p.process_name);
 
@@ -119,7 +119,7 @@ exports.create = TryCatch(async (req, res) => {
         };
       });
 
-  let derivedStatus = "pending";
+  let derivedStatus = "in_progress";
   if (Array.isArray(processes) && processes.length > 0) {
     const allDone = processes.every(
       (p) => p.done === true || p.status === "completed"
@@ -133,7 +133,7 @@ exports.create = TryCatch(async (req, res) => {
       ? "in_progress"  // Changed from "completed" to "in_progress"
       : anyStarted
       ? "in_progress"
-      : "pending";
+      : "in_progress";
   }
 
   // Start MongoDB transaction for atomicity
@@ -240,12 +240,13 @@ exports.create = TryCatch(async (req, res) => {
         }
 
         const currentStock = Number(product.current_stock) || 0;
-        if (currentStock < usedQty) {
-          stockErrors.push(
-            `Insufficient stock for compound ${product.name}. Available: ${currentStock}, Required: ${usedQty}`
-          );
-          continue;
-        }
+        // Stock validation removed for compound details - allow production even if stock is insufficient
+        // if (currentStock < usedQty) {
+        //   stockErrors.push(
+        //     `Insufficient stock for compound ${product.name}. Available: ${currentStock}, Required: ${usedQty}`
+        //   );
+        //   continue;
+        // }
 
         const newStock = Math.max(currentStock - usedQty, 0);
 
@@ -468,7 +469,7 @@ exports.update = TryCatch(async (req, res) => {
   if (Array.isArray(data.processes)) {
     data.processes = data.processes.map((proc) => ({
       ...proc,
-      status: proc.done ? "completed" : proc.start ? "in_progress" : "pending",
+      status: proc.done ? "completed" : proc.start ? "in_progress" : "in_progress",
     }));
 
     // Don't update production status based on processes
