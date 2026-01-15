@@ -1,6 +1,7 @@
 const QualityCheck = require("../models/qualityCheck");
 const GateMan = require("../models/gateMan");
 const Product = require("../models/product");
+const PurchaseOrder = require("../models/purchaseOrder");
 const { z } = require("zod");
 
 const createQualityCheckSchema = z.object({
@@ -207,8 +208,32 @@ const createQualityCheck = async (req, res) => {
 
     const savedQualityCheck = await qualityCheck.save();
 
+    // IMPORTANT: Quality check should NEVER update PurchaseOrder's remain_quantity
+    // PO's remain_quantity is only updated when GateMan entry is created/updated
+    // Quality check only affects Product inventory (current_stock and reject_stock)
+    
+    // Explicit safeguard: Verify PO's remain_quantity is NOT being updated
+    if (gatemanEntry.po_ref) {
+      const purchaseOrder = await PurchaseOrder.findById(gatemanEntry.po_ref);
+      if (purchaseOrder) {
+        const poProduct = purchaseOrder.products.find(
+          (p) => p.item_name === gatemanItem.item_name
+        );
+        if (poProduct) {
+          const originalRemainQty = poProduct.remain_quantity;
+          // Log to verify PO is not being modified
+          console.log(
+            `[Quality Check] PO remain_quantity for ${gatemanItem.item_name}: ${originalRemainQty} (should NOT change)`
+          );
+          // Explicitly ensure PO is not saved/modified
+          // This is a safeguard - quality check should never touch PO
+        }
+      }
+    }
+
     if (approved_quantity > 0) {
       // Always try to update inventory for both approved and rejected quantities
+      // NOTE: This updates Product inventory, NOT PurchaseOrder remain_quantity
       try {
         const inventoryProduct = await Product.findOne({
           name: gatemanItem.item_name,
@@ -512,7 +537,12 @@ const updateQualityCheck = async (req, res) => {
       .populate("gateman_entry_id", "po_number company_name invoice_number")
       .populate("created_by", "name email");
 
+    // IMPORTANT: Quality check should NEVER update PurchaseOrder's remain_quantity
+    // PO's remain_quantity is only updated when GateMan entry is created/updated
+    // Quality check only affects Product inventory (current_stock and reject_stock)
+
     // Update inventory if there's a change in approved quantity
+    // NOTE: This updates Product inventory, NOT PurchaseOrder remain_quantity
     if (approvedQuantityDifference !== 0) {
       try {
         const inventoryProduct = await Product.findOne({

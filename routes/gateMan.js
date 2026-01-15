@@ -1,5 +1,5 @@
 const express = require("express");
-const { create, all, details, update, remove, prefillFromPO, statusStats } = require("../controllers/gateMan");
+const { create, all, details, update, remove, prefillFromPO, statusStats, getRemainingQuantities } = require("../controllers/gateMan");
 const { upload } = require("../utils/uploadGateman");
 const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isAllowed } = require("../middlewares/isAllowed");
@@ -23,6 +23,7 @@ router
 
 router.get("/all", isAuthenticated, isAllowed, all);
 router.get("/status-stats", isAuthenticated, isAllowed, statusStats);
+router.get("/remaining-quantities", isAuthenticated, isAllowed, getRemainingQuantities);
 router.get("/:id", isAuthenticated, isAllowed, details);
 router.get("/from-po/:poId", isAuthenticated, isAllowed, prefillFromPO);
 router.patch("/change-status/:id", isAuthenticated, isAllowed, require("../controllers/gateMan").changeStatus);

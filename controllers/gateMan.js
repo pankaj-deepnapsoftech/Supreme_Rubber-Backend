@@ -319,3 +319,47 @@ exports.statusStats = TryCatch(async (req, res) => {
     data: { created, verified },
   });
 });
+
+// GET REMAINING QUANTITIES - Get all POs with remaining quantities
+exports.getRemainingQuantities = TryCatch(async (req, res) => {
+  // Get all accepted and in-process POs with their remaining quantities
+  const purchaseOrders = await PurchaseOrder.find({
+    status: { $in: ["Accepted", "In Process"] },
+  })
+    .populate("supplier", "supplier_id name email company_name location")
+    .sort({ createdAt: -1 });
+
+  // Format the response with remaining quantities
+  // Only include POs that have at least one product with remaining quantity > 0
+  const formattedPOs = purchaseOrders
+    .map((po) => ({
+      _id: po._id,
+      po_number: po.po_number,
+      supplier: po.supplier,
+      status: po.status,
+      createdAt: po.createdAt,
+      products: po.products.map((product) => ({
+        item_name: product.item_name,
+        quantity: product.quantity,
+        remain_quantity: product.remain_quantity !== undefined 
+          ? product.remain_quantity 
+          : product.quantity,
+        uom: product.uom,
+        category: product.category,
+        product_type: product.product_type,
+      })),
+    }))
+    .filter((po) => {
+      // Only include POs that have at least one product with remain_quantity > 0
+      return po.products.some(
+        (product) => (product.remain_quantity || 0) > 0
+      );
+    });
+
+  res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Remaining quantities fetched successfully",
+    data: formattedPOs,
+  });
+});
