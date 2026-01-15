@@ -136,9 +136,63 @@ exports.details = TryCatch(async (req, res) => {
 // UPDATE ENTRY
 exports.update = TryCatch(async (req, res) => {
   const { _id, ...updates } = req.body;
-  const entry = await GateMan.findByIdAndUpdate(_id, updates, { new: true });
 
-  if (!entry) throw new ErrorHandler("Entry not found", 404);
+  // Get the existing entry to compare quantities
+  const existingEntry = await GateMan.findById(_id);
+  if (!existingEntry) throw new ErrorHandler("Entry not found", 404);
+
+  // If items are being updated and po_ref exists, update PO remain_quantity
+  if (updates.items && existingEntry.po_ref) {
+    const purchaseOrder = await PurchaseOrder.findById(existingEntry.po_ref);
+
+    if (purchaseOrder) {
+      // Process each item to update PO remain_quantity
+      updates.items = updates.items.map((newItem) => {
+        // Find the old item to calculate the difference
+        const oldItem = existingEntry.items.find(
+          (item) => item.item_name === newItem.item_name
+        );
+
+        // Find the corresponding PO product
+        const poProduct = purchaseOrder.products.find(
+          (p) => p.item_name === newItem.item_name
+        );
+
+        if (poProduct && oldItem) {
+          // Calculate the difference in received quantity
+          const oldReceivedQty = Number(oldItem.item_quantity) || 0;
+          const newReceivedQty = Number(newItem.item_quantity) || 0;
+          const quantityDifference = newReceivedQty - oldReceivedQty;
+
+          // Update PO's remain_quantity by subtracting the difference
+          // If user increased received qty (positive diff), decrease remaining
+          // If user decreased received qty (negative diff), increase remaining
+          const currentRemaining =
+            poProduct.remain_quantity || poProduct.quantity;
+          const newRemaining = currentRemaining - quantityDifference;
+          poProduct.remain_quantity = newRemaining >= 0 ? newRemaining : 0;
+
+          // Calculate the new remaining quantity for this item
+          const itemRemaining =
+            (newItem.ordered_quantity || poProduct.quantity) - newReceivedQty;
+
+          return {
+            item_name: newItem.item_name,
+            item_quantity: newReceivedQty,
+            ordered_quantity: newItem.ordered_quantity || poProduct.quantity,
+            remaining_quantity: itemRemaining >= 0 ? itemRemaining : 0,
+          };
+        }
+
+        return newItem;
+      });
+
+      // Save the updated PO
+      await purchaseOrder.save();
+    }
+  }
+
+  const entry = await GateMan.findByIdAndUpdate(_id, updates, { new: true });
 
   res.status(200).json({
     status: 200,
