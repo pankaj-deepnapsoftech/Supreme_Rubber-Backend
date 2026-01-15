@@ -12,6 +12,8 @@ const {
   reject,
   markReadyForQC,
   finishProduction,
+  pauseProduction,
+  resumeProduction,
   getQcHistory,
   deleteQcHistory,
   addDailyProductionRecord,
@@ -41,6 +43,8 @@ router.patch("/:id/approve", isAuthenticated, isAllowed, approve);
 router.patch("/:id/reject", isAuthenticated, isAllowed, reject);
 router.patch("/:id/ready-for-qc", isAuthenticated, isAllowed, markReadyForQC);
 router.patch("/:id/finish", isAuthenticated, isAllowed, finishProduction);
+router.patch("/:id/pause", isAuthenticated, isAllowed, pauseProduction);
+router.patch("/:id/resume", isAuthenticated, isAllowed, resumeProduction);
 
 // Daily Production Records
 router.post(

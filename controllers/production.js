@@ -1537,6 +1537,39 @@ exports.finishProduction = TryCatch(async (req, res) => {
   });
 });
 
+// Pause production - mark as paused
+exports.pauseProduction = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { status: "paused" },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production paused",
+    production: updated,
+  });
+});
+
+// Resume production - revert to in_progress
+exports.resumeProduction = TryCatch(async (req, res) => {
+  const { id } = req.params;
+  const updated = await Production.findByIdAndUpdate(
+    id,
+    { status: "in_progress" },
+    { new: true }
+  );
+  if (!updated) throw new ErrorHandler("Production not found", 404);
+  return res.status(200).json({
+    status: 200,
+    success: true,
+    message: "Production resumed",
+    production: updated,
+  });
+});
 // Get QC History - all productions with qc_done: true and gateman quality checks
 exports.getQcHistory = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
