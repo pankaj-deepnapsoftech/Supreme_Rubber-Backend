@@ -7,7 +7,8 @@ const Supplier = require("../models/supplier");
 
 // const BASE_URL = process.env.BASE_URL
 exports.create = TryCatch(async (req, res) => {
-  const BASE_URL = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const BASE_URL =
+    process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
   let { po_ref, po_number, invoice_number, company_name, items } = req.body;
 
   if (typeof items === "string") {
@@ -33,12 +34,52 @@ exports.create = TryCatch(async (req, res) => {
     ? `${BASE_URL}/${invoiceFile.path.replace(/\\/g, "/")}`
     : null;
 
+  // Get PO to update remain_quantity
+  const purchaseOrder = await PurchaseOrder.findById(po_ref);
+  if (!purchaseOrder) {
+    throw new ErrorHandler("Purchase Order not found", 404);
+  }
+
+  // Process items and update PO remain_quantity
+  const processedItems = items.map((item) => {
+    const poProduct = purchaseOrder.products.find(
+      (p) => p.item_name === item.item_name
+    );
+
+    if (poProduct) {
+      // Calculate remaining quantity
+      const receivedQty = Number(item.item_quantity) || 0;
+      const currentRemaining = poProduct.remain_quantity || poProduct.quantity;
+      const newRemaining = currentRemaining - receivedQty;
+
+      // Update PO product's remain_quantity
+      poProduct.remain_quantity = newRemaining >= 0 ? newRemaining : 0;
+
+      return {
+        item_name: item.item_name,
+        item_quantity: receivedQty,
+        ordered_quantity: poProduct.quantity,
+        remaining_quantity: newRemaining >= 0 ? newRemaining : 0,
+      };
+    }
+
+    return {
+      item_name: item.item_name,
+      item_quantity: Number(item.item_quantity) || 0,
+      ordered_quantity: 0,
+      remaining_quantity: 0,
+    };
+  });
+
+  // Save updated PO
+  await purchaseOrder.save();
+
   const entry = await GateMan.create({
     po_ref,
     po_number,
     invoice_number,
     company_name,
-    items,
+    items: processedItems,
     attached_po,
     attached_invoice,
   });
@@ -52,7 +93,6 @@ exports.create = TryCatch(async (req, res) => {
     entry,
   });
 });
-
 
 // GET ALL ENTRIES (with pagination)
 exports.all = TryCatch(async (req, res) => {
@@ -76,10 +116,9 @@ exports.all = TryCatch(async (req, res) => {
     page,
     limit,
     total,
-    totalPages: Math.ceil(total / limit), 
+    totalPages: Math.ceil(total / limit),
   });
 });
-
 
 // GET BY ID
 exports.details = TryCatch(async (req, res) => {
@@ -155,7 +194,7 @@ exports.prefillFromPO = TryCatch(async (req, res) => {
 
 exports.changeStatus = TryCatch(async (req, res) => {
   const { id } = req.params;
-  console.log(id)
+  console.log(id);
   const entry = await GateMan.findById(id);
   if (!entry) throw new ErrorHandler("Entry not found", 404);
 
@@ -200,16 +239,22 @@ exports.statusStats = TryCatch(async (req, res) => {
 
   let range;
   if (period === "weekly") range = { $gte: startOfWeek(), $lt: endOfWeek() };
-  else if (period === "monthly") range = { $gte: startOfMonth, $lt: endOfMonth };
+  else if (period === "monthly")
+    range = { $gte: startOfMonth, $lt: endOfMonth };
   else if (period === "yearly") range = { $gte: startOfYear, $lt: endOfYear };
-  else return res.status(400).json({ status: 400, success: false, message: "Invalid period" });
+  else
+    return res
+      .status(400)
+      .json({ status: 400, success: false, message: "Invalid period" });
 
   const grouped = await GateMan.aggregate([
     { $match: { createdAt: range } },
     { $group: { _id: "$status", count: { $sum: 1 } } },
   ]);
 
-  const map = Object.fromEntries(grouped.map((g) => [g._id || "Unknown", g.count]));
+  const map = Object.fromEntries(
+    grouped.map((g) => [g._id || "Unknown", g.count])
+  );
   const created = (map["Entry Created"] || 0) + (map["Created"] || 0);
   const verified = map["Verified"] || 0;
 
